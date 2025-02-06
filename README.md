@@ -1,6 +1,6 @@
-# Phi-FEM with FEniCSx
+# $\varphi$-FEM with FEniCSx
 
-A phi-FEM implementation for Poisson-Dirichlet problems.
+A phi-FEM implementation for Poisson-Dirichlet problems with residual a posteriori error estimation.
 
 ## Prerequisites
 
