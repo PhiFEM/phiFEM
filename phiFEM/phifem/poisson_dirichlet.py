@@ -333,7 +333,8 @@ class FEMRefinementLoop:
                 Y_flat = interior_vertices[1,:]
 
             arr = np.vstack([X_flat, Y_flat])
-            Z_flat = self.levelset(arr)
+            detection = self.levelset.get_detection_expression()
+            Z_flat = detection(arr)
             Z = np.reshape(Z_flat, X.shape)
             cg = contour_generator(x=X, y=Y, z=Z, line_type="ChunkCombinedCode")
             lines = np.asarray(cg.lines(0.)[0][0])
