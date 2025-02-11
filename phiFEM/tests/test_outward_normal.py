@@ -95,11 +95,8 @@ def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
     cdim = mesh.topology.dim
     fdim = mesh.topology.dim - 1
 
-    levelset_element = element("Lagrange", mesh.topology.cell_name(), 1)
-    levelset_space = dfx.fem.functionspace(mesh, levelset_element)
-    discrete_levelset = levelset.interpolate(levelset_space)
-    cells_tags  = tag_cells(mesh, discrete_levelset)
-    facets_tags = tag_facets(mesh, discrete_levelset, cells_tags)
+    cells_tags  = tag_cells(mesh, levelset, 1)
+    facets_tags = tag_facets(mesh, cells_tags)
     w0 = compute_outward_normal(mesh, levelset)
 
     if save_normal:

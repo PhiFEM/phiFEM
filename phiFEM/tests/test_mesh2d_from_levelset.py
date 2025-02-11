@@ -108,7 +108,7 @@ def test_mesh2d_from_levelset(lc, data):
         ax.scatter(geom_vertices[0, :], geom_vertices[1, :])
     fig.savefig(f"{data_name}_{str(lc)}.png")
 
-    dummy_loop = FEMRefinementLoop(lc,1,"uniform",levelset.expression,"",geometry_vertices=geom_vertices, save_output=False)
+    dummy_loop = FEMRefinementLoop(lc,1,"uniform",levelset,"",geometry_vertices=geom_vertices, save_output=False)
     dummy_loop.set_bbox(bbox)
     
     boundary_vertices = dummy_loop.mesh2d_from_levelset()

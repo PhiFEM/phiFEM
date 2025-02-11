@@ -30,18 +30,10 @@ def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, 
     with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", "disk.xdmf"), "r") as fi:
         mesh = fi.read_mesh()
     
-    levelset_element = element("Lagrange", mesh.topology.cell_name(), 1)
-    V = dfx.fem.functionspace(mesh, levelset_element)
-    discrete_levelset = dfx.fem.Function(V)
-    discrete_levelset.interpolate(levelset.expression)
-    
     # Test computation of cells tags
-    cells_tags = tag_cells(mesh,
-                           discrete_levelset)
+    cells_tags = tag_cells(mesh, levelset, 1)
     # Test computation of facets tags when cells tags are provided
-    facets_tags = tag_facets(mesh,
-                             discrete_levelset,
-                             cells_tags)
+    facets_tags = tag_facets(mesh, cells_tags)
 
     # To save benchmark
     if save_as_benchmark:
