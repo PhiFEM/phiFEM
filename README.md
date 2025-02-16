@@ -4,23 +4,23 @@ A phi-FEM implementation for Poisson-Dirichlet problems with residual a posterio
 
 ## Prerequisites
 
-- docker/podman
+- [Git](https://git-scm.com/)
+- [Docker](https://www.docker.com/)/[podman](https://podman.io/)
 
-The docker image is based on FEniCSx.
+The docker image is based on [FEniCSx](https://fenicsproject.org/).
 It contains also some python libraries dependencies.
 
 ## Build the image:
-Replace `YOUR_ENGINE_HERE` by `docker`, `podman` or your favorite container engine (with similar commands as Docker).
+Replace `YOUR_ENGINE_HERE` by `docker`, `podman` or your favorite container engine (the following instructions use Docker/podman UI).
 ```bash
 export CONTAINER_ENGINE="YOUR_ENGINE_HERE"
-${CONTAINER_ENGINE} login
 cd docker/
-sudo -E bash build_image.sh
+bash build_image.sh
 ```
 
 ## Launch the image (from the root directory):
 ```bash
-sudo -E bash run_image.sh
+bash run_image.sh
 ```
 
 ## Run an example (inside the container from the root directory):
@@ -42,10 +42,7 @@ cd demo/
 python3 main.py pdt_sines_pyramid phiFEM 
 ```
 
-## Launch unit tests (inside the container from the root directory):
-```bash
-pytest
-```
+Extra parameters are stored in the `TEST_CASE/parameters.yaml` files.
 
 ## Details on `parameters.yaml`
 
@@ -63,3 +60,16 @@ pytest
 - `quadrature_degree`: the degree of the quadratures performed during the $\varphi$-FEM solves.
 - `stabilization_parameter`: the stabilization coefficient of $\varphi$-FEM, $1$ is a good option.
 - `save_output`: if `true` saves the output of the computations.
+
+## Launch unit tests (inside the container from the root directory):
+```bash
+pytest
+```
+
+## License
+
+`PhiFEM/Poisson-Dirichlet-fenicsx` is free software: you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
+
+You should have received a copy of the GNU Lesser General Public License along with `PhiFEM/Poisson-Dirichlet-fenicsx`. If not, see [http://www.gnu.org/licenses/](http://www.gnu.org/licenses/).
