@@ -114,7 +114,7 @@ class GenericSolver:
     
         self.solution_wh = dfx.fem.Function(self.FE_space)
         self.petsc_solver.setOperators(self.A)
-        self.petsc_solver.solve(self.b, self.solution_wh.vector)
+        self.petsc_solver.solve(self.b, self.solution_wh.x.petsc_vec)
     
     def compute_exact_error(self,
                             results_saver: ResultsSaver,
@@ -164,7 +164,7 @@ class GenericSolver:
 
         for i in range(extra_ref):
             reference_mesh.topology.create_entities(reference_mesh.topology.dim - 1)
-            reference_mesh = dfx.mesh.refine(reference_mesh)
+            reference_mesh, _, _ = dfx.mesh.refine(reference_mesh)
 
         # Computes hmin in order to ensure that the reference mesh is fine enough
         tdim = reference_mesh.topology.dim
@@ -228,11 +228,14 @@ class GenericSolver:
                 results_saver.save_function(u_exact_ref, f"u_exact_{str(self.i).zfill(2)}")
 
         uh_ref = dfx.fem.Function(reference_space)
-        nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            uh_ref.function_space.mesh,
-                            uh_ref.function_space.element,
-                            self.solution.function_space.mesh, padding=interpolation_padding)
-        uh_ref.interpolate(self.solution, nmm_interpolation_data=nmm)
+        nmm = dfx.fem.create_interpolation_data(
+                            uh_ref.function_space,
+                            self.solution.function_space,
+                            np.arange(num_cells),
+                            padding=interpolation_padding)
+        uh_ref.interpolate_nonmatching(self.solution,
+                                       np.arange(num_cells),
+                                       interpolation_data=nmm)
         e_ref = dfx.fem.Function(reference_space)
 
         if u_exact_ref is None:
@@ -282,19 +285,23 @@ class GenericSolver:
         V0_current_mesh = dfx.fem.functionspace(current_mesh, DG0Element_current_mesh)
         L2_error_0_current_mesh = dfx.fem.Function(V0_current_mesh)
 
-        nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            L2_error_0_current_mesh.function_space.mesh,
-                            L2_error_0_current_mesh.function_space.element,
-                            L2_error_0.function_space.mesh, padding=interpolation_padding)
-        L2_error_0_current_mesh.interpolate(L2_error_0, nmm_interpolation_data=nmm)
+        current_mesh_cells = np.arange(current_mesh.topology.index_map(tdim).size_global)
+        nmm = dfx.fem.create_interpolation_data(L2_error_0_current_mesh.function_space,
+                                                L2_error_0_current_mesh.function_space,
+                                                current_mesh_cells,
+                                                padding=interpolation_padding)
+        L2_error_0_current_mesh.interpolate_nonmatching(L2_error_0,
+                                                        current_mesh_cells,
+                                                        interpolation_data=nmm)
 
         H10_error_0_current_mesh = dfx.fem.Function(V0_current_mesh)
-
-        nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            H10_error_0_current_mesh.function_space.mesh,
-                            H10_error_0_current_mesh.function_space.element,
-                            H10_error_0.function_space.mesh, padding=interpolation_padding)
-        H10_error_0_current_mesh.interpolate(H10_error_0, nmm_interpolation_data=nmm)
+        nmm = dfx.fem.create_interpolation_data(H10_error_0_current_mesh.function_space,
+                                                H10_error_0_current_mesh.function_space,
+                                                current_mesh_cells,
+                                                padding=interpolation_padding)
+        H10_error_0_current_mesh.interpolate_nonmatching(H10_error_0,
+                                                         current_mesh_cells,
+                                                         interpolation_data=nmm)
 
         if save_output:
             results_saver.save_function(L2_error_0_current_mesh,  f"L2_error_{str(self.i).zfill(2)}")
@@ -639,7 +646,7 @@ class PhiFEMSolver(GenericSolver):
             DG0Element = element("DG", working_mesh.topology.cell_name(), 0)
             V0 = dfx.fem.functionspace(working_mesh, DG0Element)
             v0 = dfx.fem.Function(V0)
-            v0.vector.set(0.)
+            v0.x.set(0.)
 
             # We do not need the dofs here since cells and DG0 dofs share the same indices in dolfinx
             v0.x.array[Omega_h_cells] = 1.
@@ -984,7 +991,7 @@ class PhiFEMSolver(GenericSolver):
         eta_form = dfx.fem.form(eta)
         eta_vec = assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.setArray(eta_vec.array[:])
         self.eta_h_H10 = eta_h
 
         h10_residuals = {"Interior residual":       eta_T,
@@ -1020,7 +1027,7 @@ class PhiFEMSolver(GenericSolver):
 
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_L2 = eta_h
 
         l2_residuals = {"Interior residual":       eta_T,
@@ -1174,7 +1181,7 @@ class FEMSolver(GenericSolver):
 
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_H10 = eta_h
 
         h10_residuals = {"Interior residual":       eta_T,
@@ -1193,7 +1200,7 @@ class FEMSolver(GenericSolver):
 
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_L2 = eta_h
 
         l2_residuals = {"Interior residual":       eta_T,

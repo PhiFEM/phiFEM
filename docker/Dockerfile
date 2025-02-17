@@ -1,4 +1,5 @@
-FROM dolfinx/dolfinx:stable
+FROM ghcr.io/fenics/dolfinx/dolfinx:stable
+LABEL org.opencontainers.image.description DESCRIPTION
 RUN python3 -m pip install -U pip
 # RUN apt-get -y update && apt-get install -y python3-venv
 
@@ -24,6 +25,7 @@ RUN python3 -m pip install -U pip
 # pygmsh: create the conforming meshes
 # lxml:   change the xdmf meshes names to make meshio compatible with dolfinx
 WORKDIR /app
+RUN pip install --upgrade pip
 COPY requirements.txt /app/
 RUN pip install -r requirements.txt
 ENV PYTHONPATH="$PYTHONPATH:/home/dolfinx/shared/"

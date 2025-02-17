@@ -85,29 +85,6 @@ def test_mesh2d_from_levelset(lc, data):
     geom_vertices = data[2]
     bbox          = data[3]
 
-    x_min, x_max = -1., 1.
-    y_min, y_max = -1., 1.
-    nx = 1000
-    ny = 1000
-    xs = np.linspace(x_min, x_max, nx)
-    ys = np.linspace(y_min, y_max, ny)
-
-    xx, yy = np.meshgrid(xs, ys)
-    xx_rs = xx.reshape(xx.shape[0] * xx.shape[1])
-    yy_rs = yy.reshape(yy.shape[0] * yy.shape[1])
-    xxx = np.vstack([xx_rs, yy_rs])
-    zz_rs = data[1](xxx)
-    zz = zz_rs.reshape(xx.shape)
-
-
-    import matplotlib.pyplot as plt
-    fig, ax = plt.subplots()
-
-    ax.contour(xx, yy, zz, [0.], linewidths=0.2)
-    if geom_vertices is not None:
-        ax.scatter(geom_vertices[0, :], geom_vertices[1, :])
-    fig.savefig(f"{data_name}_{str(lc)}.png")
-
     dummy_loop = FEMRefinementLoop(lc,1,"uniform",levelset,"",geometry_vertices=geom_vertices, save_output=False)
     dummy_loop.set_bbox(bbox)
     

@@ -73,7 +73,7 @@ def assemble_and_save_residual(mesh: Mesh,
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_global = np.sqrt(sum(eta_vec.array[:]))
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
 
         saver.save_function(eta_h, name + "_" + str(iteration).zfill(2))
         saver.add_new_value(name, eta_global)

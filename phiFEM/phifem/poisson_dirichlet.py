@@ -472,13 +472,13 @@ class FEMRefinementLoop:
             if i < self.iteration_number - 1:
                 # Uniform refinement (Omega_h only)
                 if self.refinement_method == "uniform":
-                    self.mesh = dfx.mesh.refine(self.mesh)
+                    self.mesh, _, _ = dfx.mesh.refine(self.mesh)
 
                 # Adaptive refinement
                 if self.refinement_method in ["H10", "L2"]:
                     # Marking
                     facets2ref = FEM_solver.marking()
-                    self.mesh = dfx.mesh.refine(self.mesh, facets2ref)
+                    self.mesh, _, _ = dfx.mesh.refine(self.mesh, facets2ref)
 
                 # if remesh_boundary:
                 #     vertices_coordinates = self.mesh.geometry.x
