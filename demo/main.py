@@ -5,6 +5,7 @@ import os
 import yaml
 
 from phiFEM.phifem.poisson_dirichlet import PhiFEMRefinementLoop, FEMRefinementLoop
+from phiFEM.phifem.continuous_functions import Levelset
 
 parent_dir = os.path.dirname(__file__)
 
@@ -34,7 +35,9 @@ module_name = demo + ".data"
 module      = importlib.import_module(module_name)
 expressions = {name: func for name, func in inspect.getmembers(module, inspect.isfunction) if name.startswith("expression_")}
 
-expression_levelset = expressions["expression_levelset"]
+levelset = Levelset(expressions["expression_levelset"])
+if "expression_detection_levelset" in expressions.keys():
+    levelset.set_detection_expression(expressions["expression_detection_levelset" ])
 if "expression_u_exact" not in expressions.keys():
     expressions["expression_u_exact"] = None
 if "expression_rhs" not in expressions.keys():
@@ -52,7 +55,7 @@ if solver=="phiFEM":
     phifem_loop = PhiFEMRefinementLoop(initial_mesh_size,
                                        num_it,
                                        ref_method,
-                                       expression_levelset,
+                                       levelset,
                                        stabilization_parameter,
                                        source_dir)
     phifem_loop.set_parameters(parameters, expressions)
@@ -63,7 +66,7 @@ if solver=="FEM":
     fem_loop = FEMRefinementLoop(initial_mesh_size,
                                  num_it,
                                  ref_method,
-                                 expression_levelset,
+                                 levelset,
                                  source_dir,
                                  geometry_vertices=module.geom_vertices)
 

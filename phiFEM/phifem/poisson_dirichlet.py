@@ -30,7 +30,7 @@ class PhiFEMRefinementLoop:
                  initial_mesh_size: float,
                  iteration_number: int,
                  refinement_method: str,
-                 expression_levelset: NDArrayFunction,
+                 levelset: Levelset,
                  stabilization_parameter: float,
                  source_dir: PathStr):
         
@@ -47,7 +47,7 @@ class PhiFEMRefinementLoop:
         self.initial_mesh_size: float             = initial_mesh_size
         self.initial_bg_mesh: Mesh | None         = None
         self.iteration_number: int                = iteration_number
-        self.levelset: Levelset                   = Levelset(expression_levelset)
+        self.levelset: Levelset                   = levelset
         self.levelset_degree: int                 = 1
         self.marking_parameter: float             = 0.3
         self.quadrature_degree: int | None        = None
@@ -64,6 +64,7 @@ class PhiFEMRefinementLoop:
         self.bbox                      = np.asarray(parameters["bbox"])
         self.boundary_detection_degree = parameters["boundary_detection_degree"]
         self.box_mode                  = parameters["box_mode"] 
+        self.boundary_refinement_type  = parameters["boundary_refinement_type"] 
         self.exact_error               = parameters["exact_error"]
         self.finite_element_degree     = parameters["finite_element_degree"]
         self.levelset_degree           = parameters["levelset_degree"]
@@ -90,6 +91,11 @@ class PhiFEMRefinementLoop:
     
     def set_box_mode(self, box_mode: bool):
         self.box_mode = box_mode
+    
+    def set_boundary_refinement_type(self, boundary_refinement_type: str):
+        if boundary_refinement_type not in ['h', 'p']:
+            raise ValueError("boundary_refinement_type must be 'h' or 'p'.")
+        self.boundary_refinement_type = boundary_refinement_type
     
     def set_exact_error_on(self, exact_error: bool):
         self.exact_error = exact_error
@@ -131,7 +137,6 @@ class PhiFEMRefinementLoop:
         nx = int(np.abs(self.bbox[0, 1] - self.bbox[0, 0]) * np.sqrt(2.) / self.initial_mesh_size)
         ny = int(np.abs(self.bbox[1, 1] - self.bbox[1, 0]) * np.sqrt(2.) / self.initial_mesh_size)
         self.initial_bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, self.bbox.T, [nx, ny])
-
         if self.results_saver is not None:
             self.results_saver.save_mesh(self.initial_bg_mesh, "initial_bg_mesh")
     
@@ -152,7 +157,6 @@ class PhiFEMRefinementLoop:
         for i in range(self.iteration_number):
             whElement        = element("Lagrange", working_mesh.topology.cell_name(), self.finite_element_degree)
             levelsetElement  = element("Lagrange", working_mesh.topology.cell_name(), self.levelset_degree)
-            detectionElement = element("Lagrange", working_mesh.topology.cell_name(), self.boundary_detection_degree)
 
             # Parametrization of the PETSc solver
             options = Options()
@@ -170,6 +174,7 @@ class PhiFEMRefinementLoop:
                                          detection_degree=self.boundary_detection_degree,
                                          use_fine_space=self.use_fine_space,
                                          box_mode=self.box_mode,
+                                         boundary_refinement_type=self.boundary_refinement_type,
                                          num_step=i,
                                          ref_strat=self.refinement_method,
                                          save_output=self.save_output)
@@ -234,12 +239,12 @@ class PhiFEMRefinementLoop:
             if i < self.iteration_number - 1:
                 # Uniform refinement (Omega_h only)
                 if self.refinement_method == "uniform":
-                    working_mesh = dfx.mesh.refine(working_mesh)
+                    working_mesh, _, _ = dfx.mesh.refine(working_mesh)
 
                 # Adaptive refinement
                 if self.refinement_method in ["H10", "L2"]:
                     facets2ref = phiFEM_solver.marking()
-                    working_mesh = dfx.mesh.refine(working_mesh, facets2ref)
+                    working_mesh, _, _ = dfx.mesh.refine(working_mesh, facets2ref)
 
             if self.save_output:
                 self.results_saver.save_values("results.csv")
@@ -251,7 +256,7 @@ class FEMRefinementLoop:
                  initial_mesh_size: float,
                  iteration_number: int,
                  refinement_method: str,
-                 expression_levelset: NDArrayFunction,
+                 levelset: Levelset,
                  source_dir: PathStr,
                  geometry_vertices: NDArray | None = None,
                  save_output: bool = True):
@@ -265,7 +270,7 @@ class FEMRefinementLoop:
         self.geometry_vertices: NDArray | None    = geometry_vertices
         self.initial_mesh_size: float             = initial_mesh_size
         self.iteration_number: int                = iteration_number
-        self.levelset: Levelset                   = Levelset(expression_levelset)
+        self.levelset: Levelset                   = levelset
         self.marking_parameter: float             = 0.3
         self.quadrature_degree: int | None        = None
         self.rhs: ContinuousFunction | None       = None
@@ -327,7 +332,8 @@ class FEMRefinementLoop:
                 Y_flat = interior_vertices[1,:]
 
             arr = np.vstack([X_flat, Y_flat])
-            Z_flat = self.levelset(arr)
+            detection = self.levelset.get_detection_expression()
+            Z_flat = detection(arr)
             Z = np.reshape(Z_flat, X.shape)
             cg = contour_generator(x=X, y=Y, z=Z, line_type="ChunkCombinedCode")
             lines = np.asarray(cg.lines(0.)[0][0])
@@ -465,13 +471,13 @@ class FEMRefinementLoop:
             if i < self.iteration_number - 1:
                 # Uniform refinement (Omega_h only)
                 if self.refinement_method == "uniform":
-                    self.mesh = dfx.mesh.refine(self.mesh)
+                    self.mesh, _, _ = dfx.mesh.refine(self.mesh)
 
                 # Adaptive refinement
                 if self.refinement_method in ["H10", "L2"]:
                     # Marking
                     facets2ref = FEM_solver.marking()
-                    self.mesh = dfx.mesh.refine(self.mesh, facets2ref)
+                    self.mesh, _, _ = dfx.mesh.refine(self.mesh, facets2ref)
 
                 # if remesh_boundary:
                 #     vertices_coordinates = self.mesh.geometry.x

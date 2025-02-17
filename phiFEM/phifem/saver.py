@@ -82,7 +82,7 @@ class ResultsSaver:
         """
         with XDMFFile(mesh.comm, os.path.join(self.output_path, "meshes",  file_name + ".xdmf"), "w") as of:
             of.write_mesh(mesh)
-    
+
     def save_values(self, file_name: str) -> None:
         """ Convert the values to a pandas DataFrame and save it to the disk.
 

@@ -1,9 +1,12 @@
-pandas
-jax
-meshio
-pygmsh
-lxml
 h5py
+jax
+lxml
+meshio
+mypy_extensions
+pandas
+pygmsh
+pytest
+yq
 h5py-stubs
 lxml-stubs
 pandas-stubs

@@ -65,6 +65,19 @@ class ContinuousFunction:
 class Levelset(ContinuousFunction):
     """ Class to represent a levelset function as a continuous function."""
 
+    def __init__(self, expression: NDArrayFunction) -> None:
+        super().__init__(expression)
+        self.detection_expression: NDArrayFunction | None = None
+    
+    def set_detection_expression(self, expression: NDArrayFunction) -> None:
+        self.detection_expression = expression
+
+    def get_detection_expression(self):
+        detection_expression = self.expression
+        if self.detection_expression is not None:
+            detection_expression = self.detection_expression
+        return detection_expression
+
     def exterior(self, t: float, padding: float =0.) -> Callable[[npt.NDArray[np.float64]], npt.NDArray[np.bool_]]:
         """ Compute a lambda function determining if the point x is outside the domain defined by the isoline of level t.
         

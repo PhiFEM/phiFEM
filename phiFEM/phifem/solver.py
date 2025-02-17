@@ -114,7 +114,7 @@ class GenericSolver:
     
         self.solution_wh = dfx.fem.Function(self.FE_space)
         self.petsc_solver.setOperators(self.A)
-        self.petsc_solver.solve(self.b, self.solution_wh.vector)
+        self.petsc_solver.solve(self.b, self.solution_wh.x.petsc_vec)
     
     def compute_exact_error(self,
                             results_saver: ResultsSaver,
@@ -164,7 +164,7 @@ class GenericSolver:
 
         for i in range(extra_ref):
             reference_mesh.topology.create_entities(reference_mesh.topology.dim - 1)
-            reference_mesh = dfx.mesh.refine(reference_mesh)
+            reference_mesh, _, _ = dfx.mesh.refine(reference_mesh)
 
         # Computes hmin in order to ensure that the reference mesh is fine enough
         tdim = reference_mesh.topology.dim
@@ -228,11 +228,14 @@ class GenericSolver:
                 results_saver.save_function(u_exact_ref, f"u_exact_{str(self.i).zfill(2)}")
 
         uh_ref = dfx.fem.Function(reference_space)
-        nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            uh_ref.function_space.mesh,
-                            uh_ref.function_space.element,
-                            self.solution.function_space.mesh, padding=interpolation_padding)
-        uh_ref.interpolate(self.solution, nmm_interpolation_data=nmm)
+        nmm = dfx.fem.create_interpolation_data(
+                            uh_ref.function_space,
+                            self.solution.function_space,
+                            np.arange(num_cells),
+                            padding=interpolation_padding)
+        uh_ref.interpolate_nonmatching(self.solution,
+                                       np.arange(num_cells),
+                                       interpolation_data=nmm)
         e_ref = dfx.fem.Function(reference_space)
 
         if u_exact_ref is None:
@@ -282,19 +285,23 @@ class GenericSolver:
         V0_current_mesh = dfx.fem.functionspace(current_mesh, DG0Element_current_mesh)
         L2_error_0_current_mesh = dfx.fem.Function(V0_current_mesh)
 
-        nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            L2_error_0_current_mesh.function_space.mesh,
-                            L2_error_0_current_mesh.function_space.element,
-                            L2_error_0.function_space.mesh, padding=interpolation_padding)
-        L2_error_0_current_mesh.interpolate(L2_error_0, nmm_interpolation_data=nmm)
+        current_mesh_cells = np.arange(current_mesh.topology.index_map(tdim).size_global)
+        nmm = dfx.fem.create_interpolation_data(L2_error_0_current_mesh.function_space,
+                                                L2_error_0_current_mesh.function_space,
+                                                current_mesh_cells,
+                                                padding=interpolation_padding)
+        L2_error_0_current_mesh.interpolate_nonmatching(L2_error_0,
+                                                        current_mesh_cells,
+                                                        interpolation_data=nmm)
 
         H10_error_0_current_mesh = dfx.fem.Function(V0_current_mesh)
-
-        nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            H10_error_0_current_mesh.function_space.mesh,
-                            H10_error_0_current_mesh.function_space.element,
-                            H10_error_0.function_space.mesh, padding=interpolation_padding)
-        H10_error_0_current_mesh.interpolate(H10_error_0, nmm_interpolation_data=nmm)
+        nmm = dfx.fem.create_interpolation_data(H10_error_0_current_mesh.function_space,
+                                                H10_error_0_current_mesh.function_space,
+                                                current_mesh_cells,
+                                                padding=interpolation_padding)
+        H10_error_0_current_mesh.interpolate_nonmatching(H10_error_0,
+                                                         current_mesh_cells,
+                                                         interpolation_data=nmm)
 
         if save_output:
             results_saver.save_function(L2_error_0_current_mesh,  f"L2_error_{str(self.i).zfill(2)}")
@@ -390,6 +397,7 @@ class PhiFEMSolver(GenericSolver):
                  levelset_element: _ElementBase | None = None,
                  detection_degree: int = 1,
                  box_mode: bool = False,
+                 boundary_refinement_type: str = 'h',
                  use_fine_space: bool = False,
                  num_step: int = 0,
                  save_output: bool = True) -> None:
@@ -415,6 +423,9 @@ class PhiFEMSolver(GenericSolver):
                          save_output=save_output)
 
         self.bg_mesh_cells_tags: MeshTags | None  = None
+        if boundary_refinement_type not in ['h', 'p']:
+            raise ValueError("boundary_refinement_type must be 'h' or 'p'.")
+        self.boundary_refinement_type: str        = boundary_refinement_type
         self.facets_tags: MeshTags | None         = None
         self.FE_space: FunctionSpace | None       = None
         self.levelset: Levelset | None            = None
@@ -635,7 +646,7 @@ class PhiFEMSolver(GenericSolver):
             DG0Element = element("DG", working_mesh.topology.cell_name(), 0)
             V0 = dfx.fem.functionspace(working_mesh, DG0Element)
             v0 = dfx.fem.Function(V0)
-            v0.vector.set(0.)
+            v0.x.set(0.)
 
             # We do not need the dofs here since cells and DG0 dofs share the same indices in dolfinx
             v0.x.array[Omega_h_cells] = 1.
@@ -739,7 +750,10 @@ class PhiFEMSolver(GenericSolver):
             raise ValueError("SOLVER_NAME.levelset_space is None, did you forget to set the variational formulation ? (SOLVER_NAME.set_variational_formulation)")
         return self.levelset_space
     
-    def _compute_boundary_correction_function(self, working_mesh: Mesh, entities_tags: MeshTags, refinement_type: str) -> Function:
+    def _compute_boundary_correction_function(self,
+                                              working_mesh: Mesh,
+                                              entities_tags: MeshTags,
+                                              refinement_type: str) -> Function:
         """ Compute the boundary correction function.
 
         Args:
@@ -796,7 +810,7 @@ class PhiFEMSolver(GenericSolver):
             correction_function = (φ_h - φ_f) w_f
             where:
             - φ_h is the discretization of the levelset in the levelset space.
-            - φ_f is the interpolation of w_h in the h-finer space (based on a mesh locally refined around Ω_h^Γ).
+            - φ_f is the interpolation of φ in the h-finer space (based on a mesh locally refined around Ω_h^Γ).
             All the functions have to be interpolated in the same space (the correction space) prior the computation of the correction function.
             Then all the functions are interpolated back to the working_mesh in a higher order space (to keep the features from the finer mesh).
             """
@@ -806,26 +820,30 @@ class PhiFEMSolver(GenericSolver):
             cut_facets = entities_tags.find(2)
 
             # dfx.mesh.refine MODIFIES the input mesh preventing the computation of the estimator below.
-            # To avoid it I follow the dirty trick from https://fenicsproject.discourse.group/t/strange-behavior-after-using-create-mesh/14887/3
+            # To avoid it I follow the trick from https://fenicsproject.discourse.group/t/strange-behavior-after-using-create-mesh/14887/3
             # I create a dummy_mesh as a submesh that is in fact a copy of working_mesh and the refinement is made from dummy_mesh.
             num_cells = working_mesh.topology.index_map(working_mesh.topology.dim).size_global
             dummy_mesh = dfx.mesh.create_submesh(working_mesh, working_mesh.topology.dim, np.arange(num_cells))[0]
             dummy_mesh.topology.create_entities(dummy_mesh.topology.dim - 1)
-            correction_mesh = dfx.mesh.refine(dummy_mesh, cut_facets)
+            correction_mesh, _, _ = dfx.mesh.refine(dummy_mesh, cut_facets)
 
             CGhfElement = element("Lagrange",
                                   correction_mesh.topology.cell_name(),
                                   self.levelset_space.ufl_element().degree)
             V_correction = dfx.fem.functionspace(correction_mesh, CGhfElement)
-
-            nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            correction_mesh,
-                            V_correction.element,
-                            working_mesh,
+            cdim = correction_mesh.topology.dim
+            num_cells = correction_mesh.topology.index_map(cdim).size_global
+            correction_mesh_cells = np.arange(num_cells)
+            nmm = dfx.fem.create_interpolation_data(
+                            V_correction,
+                            self.levelset_space,
+                            correction_mesh_cells,
                             padding=1.e-14)
 
             phih_correction = dfx.fem.Function(V_correction)
-            phih_correction.interpolate(phih, nmm_interpolation_data=nmm)
+            phih_correction.interpolate_nonmatching(phih,
+                                                    correction_mesh_cells,
+                                                    interpolation_data=nmm)
 
             phif_correction = dfx.fem.Function(V_correction)
             phif_correction.interpolate(self.levelset)
@@ -834,7 +852,9 @@ class PhiFEMSolver(GenericSolver):
             if self.solution_wh is None:
                 raise ValueError("SOLVER_NAME.solution_wh is None, did you forget to solve ?(SOLVER_NAME.solve)")
 
-            whf.interpolate(self.solution_wh, nmm_interpolation_data=nmm)
+            whf.interpolate_nonmatching(self.solution_wh,
+                                        correction_mesh_cells,
+                                        interpolation_data=nmm)
 
             correction_function = dfx.fem.Function(V_correction)
             correction_function.x.array[:] = (phih_correction.x.array[:] - phif_correction.x.array[:]) * whf.x.array[:]
@@ -844,14 +864,20 @@ class PhiFEMSolver(GenericSolver):
                                   self.levelset_element.degree + 1)
             V_working = dfx.fem.functionspace(working_mesh, CGpfElement)
 
-            nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            working_mesh,
-                            V_working.element,
-                            correction_mesh,
+            cdim = working_mesh.topology.dim
+            num_cells = working_mesh.topology.index_map(cdim).size_global
+            working_mesh_cells = np.arange(num_cells)
+
+            nmm = dfx.fem.create_interpolation_data(
+                            V_working,
+                            V_correction,
+                            working_mesh_cells,
                             padding=1.e-14)
         
             correction_function_V = dfx.fem.Function(V_working)
-            correction_function_V.interpolate(correction_function, nmm_interpolation_data=nmm)
+            correction_function_V.interpolate_nonmatching(correction_function, 
+                                                          working_mesh_cells,
+                                                          interpolation_data=nmm)
         return correction_function_V
     
     def estimate_residual(self,
@@ -926,8 +952,10 @@ class PhiFEMSolver(GenericSolver):
         if self.levelset is None:
             raise ValueError("SOLVER_NAME.levelset is None.")
 
-        # correction_function = self._compute_boundary_correction_function(working_mesh, working_cells_tags, 'p')
-        correction_function = self._compute_boundary_correction_function(working_mesh, self.facets_tags, 'h')
+        if self.boundary_refinement_type=='p':
+            correction_function = self._compute_boundary_correction_function(working_mesh, working_cells_tags, self.boundary_refinement_type)
+        else:
+            correction_function = self._compute_boundary_correction_function(working_mesh, self.facets_tags, self.boundary_refinement_type)
 
         correction_function_V = dfx.fem.Function(self.FE_space)
         correction_function_V.interpolate(correction_function)
@@ -975,7 +1003,7 @@ class PhiFEMSolver(GenericSolver):
         eta_form = dfx.fem.form(eta)
         eta_vec = assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_H10 = eta_h
 
         h10_residuals = {"Interior residual":       eta_T,
@@ -1011,7 +1039,7 @@ class PhiFEMSolver(GenericSolver):
 
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_L2 = eta_h
 
         l2_residuals = {"Interior residual":       eta_T,
@@ -1165,7 +1193,7 @@ class FEMSolver(GenericSolver):
 
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_H10 = eta_h
 
         h10_residuals = {"Interior residual":       eta_T,
@@ -1184,7 +1212,7 @@ class FEMSolver(GenericSolver):
 
         eta_vec = dfx.fem.petsc.assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.vector.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_L2 = eta_h
 
         l2_residuals = {"Interior residual":       eta_T,

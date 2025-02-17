@@ -52,7 +52,7 @@ def tag_cells(mesh: Mesh,
         quadrature_points = points[:,points[2,:] <= np.ones_like(points[0,:])-points[0,:]-points[1,:]]
     else:
         raise NotImplementedError("Mesh cell type not supported. Only supported types are: triangle, tetrahedron.")
-    
+
     quadrature_weights = np.ones_like(quadrature_points[0,:])
     custom_rule = {"quadrature_rule":    "custom",
                    "quadrature_points":  quadrature_points.T,
@@ -65,7 +65,8 @@ def tag_cells(mesh: Mesh,
     detection_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
     detection_space = dfx.fem.functionspace(mesh, detection_element)
     discrete_levelset = dfx.fem.Function(detection_space)
-    discrete_levelset.interpolate(levelset.expression)
+    detection_expression = levelset.get_detection_expression()
+    discrete_levelset.interpolate(detection_expression)
     # We localize at each cell via a DG0 test function.
     DG0Element = element("DG", mesh.topology.cell_name(), 0)
     V0 = dfx.fem.functionspace(mesh, DG0Element)
@@ -122,7 +123,10 @@ def tag_cells(mesh: Mesh,
         plot_mesh_tags(mesh, cells_tags, ax=ax, display_indices=False)
         plt.savefig("./cells_tags.svg", format="svg", dpi=2400, bbox_inches="tight")
         figure, ax = plt.subplots()
-        plot_dg0_function(mesh, detection, ax, levelset.expression)
+        plot_dg0_function(mesh,
+                          detection,
+                          ax,
+                          detection_expression)
         plt.savefig("./detection_function.png", bbox_inches="tight") #, format="svg", dpi=2400, bbox_inches="tight")
     return cells_tags
 
