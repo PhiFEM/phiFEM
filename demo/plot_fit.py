@@ -104,7 +104,6 @@ if __name__=="__main__":
             style = styles_dict[ref_strat]
             cutoff = cutoffs_dict[ref_strat]
             data_dir = os.path.join(parent_dir, test_case, "output_" + solver, ref_strat)
-            print("Data dir:", data_dir)
             label_ref = label_ref_strats[ref_strat]
             if mode=="all":
                 label = f"{label_solver[solver]}{label_ref}"
@@ -122,8 +121,6 @@ if __name__=="__main__":
             #min_index = np.argmin(last_vals)
             dofs = np.asarray(lst_dofs)#[min_index]
             vals = np.asarray(lst_vals)#[min_index]
-            print(dofs)
-            print(vals)
             marker(ax, dofs, [vals], 0.75, gap, slope, color="dimgrey", round_num=2)
     plt.xlabel("dofs")
     plt.legend()

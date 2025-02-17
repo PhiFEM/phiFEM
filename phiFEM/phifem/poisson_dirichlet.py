@@ -137,7 +137,6 @@ class PhiFEMRefinementLoop:
         nx = int(np.abs(self.bbox[0, 1] - self.bbox[0, 0]) * np.sqrt(2.) / self.initial_mesh_size)
         ny = int(np.abs(self.bbox[1, 1] - self.bbox[1, 0]) * np.sqrt(2.) / self.initial_mesh_size)
         self.initial_bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, self.bbox.T, [nx, ny])
-
         if self.results_saver is not None:
             self.results_saver.save_mesh(self.initial_bg_mesh, "initial_bg_mesh")
     
@@ -240,12 +239,12 @@ class PhiFEMRefinementLoop:
             if i < self.iteration_number - 1:
                 # Uniform refinement (Omega_h only)
                 if self.refinement_method == "uniform":
-                    working_mesh = dfx.mesh.refine(working_mesh)
+                    working_mesh, _, _ = dfx.mesh.refine(working_mesh)
 
                 # Adaptive refinement
                 if self.refinement_method in ["H10", "L2"]:
                     facets2ref = phiFEM_solver.marking()
-                    working_mesh = dfx.mesh.refine(working_mesh, facets2ref)
+                    working_mesh, _, _ = dfx.mesh.refine(working_mesh, facets2ref)
 
             if self.save_output:
                 self.results_saver.save_values("results.csv")

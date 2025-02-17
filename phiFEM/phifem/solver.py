@@ -825,21 +825,25 @@ class PhiFEMSolver(GenericSolver):
             num_cells = working_mesh.topology.index_map(working_mesh.topology.dim).size_global
             dummy_mesh = dfx.mesh.create_submesh(working_mesh, working_mesh.topology.dim, np.arange(num_cells))[0]
             dummy_mesh.topology.create_entities(dummy_mesh.topology.dim - 1)
-            correction_mesh = dfx.mesh.refine(dummy_mesh, cut_facets)
+            correction_mesh, _, _ = dfx.mesh.refine(dummy_mesh, cut_facets)
 
             CGhfElement = element("Lagrange",
                                   correction_mesh.topology.cell_name(),
                                   self.levelset_space.ufl_element().degree)
             V_correction = dfx.fem.functionspace(correction_mesh, CGhfElement)
-
-            nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            correction_mesh,
-                            V_correction.element,
-                            working_mesh,
+            cdim = correction_mesh.topology.dim
+            num_cells = correction_mesh.topology.index_map(cdim).size_global
+            correction_mesh_cells = np.arange(num_cells)
+            nmm = dfx.fem.create_interpolation_data(
+                            V_correction,
+                            self.levelset_space,
+                            correction_mesh_cells,
                             padding=1.e-14)
 
             phih_correction = dfx.fem.Function(V_correction)
-            phih_correction.interpolate(phih, nmm_interpolation_data=nmm)
+            phih_correction.interpolate_nonmatching(phih,
+                                                    correction_mesh_cells,
+                                                    interpolation_data=nmm)
 
             phif_correction = dfx.fem.Function(V_correction)
             phif_correction.interpolate(self.levelset)
@@ -848,7 +852,9 @@ class PhiFEMSolver(GenericSolver):
             if self.solution_wh is None:
                 raise ValueError("SOLVER_NAME.solution_wh is None, did you forget to solve ?(SOLVER_NAME.solve)")
 
-            whf.interpolate(self.solution_wh, nmm_interpolation_data=nmm)
+            whf.interpolate_nonmatching(self.solution_wh,
+                                        correction_mesh_cells,
+                                        interpolation_data=nmm)
 
             correction_function = dfx.fem.Function(V_correction)
             correction_function.x.array[:] = (phih_correction.x.array[:] - phif_correction.x.array[:]) * whf.x.array[:]
@@ -858,14 +864,20 @@ class PhiFEMSolver(GenericSolver):
                                   self.levelset_element.degree + 1)
             V_working = dfx.fem.functionspace(working_mesh, CGpfElement)
 
-            nmm = dfx.fem.create_nonmatching_meshes_interpolation_data(
-                            working_mesh,
-                            V_working.element,
-                            correction_mesh,
+            cdim = working_mesh.topology.dim
+            num_cells = working_mesh.topology.index_map(cdim).size_global
+            working_mesh_cells = np.arange(num_cells)
+
+            nmm = dfx.fem.create_interpolation_data(
+                            V_working,
+                            V_correction,
+                            working_mesh_cells,
                             padding=1.e-14)
         
             correction_function_V = dfx.fem.Function(V_working)
-            correction_function_V.interpolate(correction_function, nmm_interpolation_data=nmm)
+            correction_function_V.interpolate_nonmatching(correction_function, 
+                                                          working_mesh_cells,
+                                                          interpolation_data=nmm)
         return correction_function_V
     
     def estimate_residual(self,
@@ -991,7 +1003,7 @@ class PhiFEMSolver(GenericSolver):
         eta_form = dfx.fem.form(eta)
         eta_vec = assemble_vector(eta_form)
         eta_h = dfx.fem.Function(V0)
-        eta_h.setArray(eta_vec.array[:])
+        eta_h.x.petsc_vec.setArray(eta_vec.array[:])
         self.eta_h_H10 = eta_h
 
         h10_residuals = {"Interior residual":       eta_T,
