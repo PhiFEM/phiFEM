@@ -4,7 +4,8 @@ import inspect
 import os
 import yaml
 
-from phiFEM.phifem.poisson_dirichlet import PhiFEMRefinementLoop, FEMRefinementLoop
+from refinement_loop.poisson_dirichlet import PhiFEMRefinementLoop
+from FEM.poisson_dirichlet import FEMRefinementLoop
 from phiFEM.phifem.continuous_functions import Levelset
 
 parent_dir = os.path.dirname(__file__)
