@@ -32,7 +32,7 @@ The `main.py` script have the following parameters:
 python3 main.py TEST_CASE SOLVER
 ```
 where
-- `TEST_CASE` is one of the available test cases: `pdt_sines_pyramid`, `lshaped` or `flower`.
+- `TEST_CASE` is one of the available test cases: `pdt_sines_pyramid`, `pdt_sines_smooth`, `lshaped`, `lshaped_smooth` or `flower`.
 - `SOLVER` defines the FE solver (`str` among `FEM` or `phiFEM`),
 For each test case, the parameters of the $\varphi$-FEM and of the adaptation loop are in `demo/TEST_CASE/parameters.yaml`.
 See a detailed explanation of each parameter below.
