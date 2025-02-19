@@ -8,6 +8,7 @@ import numpy.typing as npt
 import ufl # type: ignore[import-untyped]
 from   ufl import inner
 
+from phiFEM.phifem.mesh_scripts import reshape_facets_map
 from phiFEM.phifem.continuous_functions import Levelset
 
 def tag_cells(mesh: Mesh,
@@ -27,70 +28,94 @@ def tag_cells(mesh: Mesh,
     Returns:
         The cells tags as a MeshTags object.
     """
-    # Create the custom quadrature rule.
-    # The evaluation points are the dofs of the reference cell.
-    # The weights are 1.
-    quadrature_points: npt.NDArray[np.float64]
-    if mesh.topology.cell_name() == "triangle":
-        xs = np.linspace(0., 1., detection_degree + 1)
-        xx, yy = np.meshgrid(xs, xs)
-        x_coords = xx.reshape((1, xx.shape[0] * xx.shape[1]))
-        y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
-        points = np.vstack([x_coords, y_coords])
-        quadrature_points = points[:,points[1,:] <= np.ones_like(points[0,:])-points[0,:]]
-    elif mesh.topology.cell_name() == "tetrahedron":
-        xs = np.linspace(0., 1., detection_degree + 1)
-        xx, yy, zz = np.meshgrid(xs, xs, xs)
-        x_coords = xx.reshape((1, xx.shape[0] * xx.shape[1]))
-        y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
-        z_coords = zz.reshape((1, zz.shape[0] * zz.shape[1]))
-        points = np.vstack([x_coords, y_coords, z_coords])
-        quadrature_points = points[:,points[2,:] <= np.ones_like(points[0,:])-points[0,:]-points[1,:]]
+
+    cdim = mesh.topology.dim
+    detection_measure_subdomain = np.arange(mesh.topology.index_map(cdim).size_global)
+    if detection_degree > 1:
+        fdim = cdim - 1
+        mesh.topology.create_connectivity(cdim, fdim)
+        mesh.topology.create_connectivity(fdim, cdim)
+        c2f_connect = mesh.topology.connectivity(cdim, fdim)
+        num_facets_per_cell = len(c2f_connect.links(0))
+        c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+        f2c_connect = mesh.topology.connectivity(fdim, cdim)
+        f2c_map = reshape_facets_map(f2c_connect)
+        detection_degrees = [1, detection_degree]
     else:
-        raise NotImplementedError("Mesh cell type not supported. Only supported types are: triangle, tetrahedron.")
-
-    quadrature_weights = np.ones_like(quadrature_points[0,:])
-    custom_rule = {"quadrature_rule":    "custom",
-                   "quadrature_points":  quadrature_points.T,
-                   "quadrature_weights": quadrature_weights}
+        detection_degrees = [detection_degree]
     
-    cells_detection_dx = ufl.Measure("dx",
-                                     domain=mesh,
-                                     metadata=custom_rule)
-    
-    detection_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
-    detection_space = dfx.fem.functionspace(mesh, detection_element)
-    discrete_levelset = dfx.fem.Function(detection_space)
-    detection_expression = levelset.get_detection_expression()
-    discrete_levelset.interpolate(detection_expression)
-    # We localize at each cell via a DG0 test function.
-    DG0Element = element("DG", mesh.topology.cell_name(), 0)
-    V0 = dfx.fem.functionspace(mesh, DG0Element)
-    v0 = ufl.TestFunction(V0)
+    for degree in detection_degrees:
+        # Create the custom quadrature rule.
+        # The evaluation points are the dofs of the reference cell.
+        # The weights are 1.
+        quadrature_points: npt.NDArray[np.float64]
+        if mesh.topology.cell_name() == "triangle":
+            xs = np.linspace(0., 1., degree + 1)
+            xx, yy = np.meshgrid(xs, xs)
+            x_coords = xx.reshape((1, xx.shape[0] * xx.shape[1]))
+            y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
+            points = np.vstack([x_coords, y_coords])
+            quadrature_points = points[:,points[1,:] <= np.ones_like(points[0,:])-points[0,:]]
+        elif mesh.topology.cell_name() == "tetrahedron":
+            xs = np.linspace(0., 1., degree + 1)
+            xx, yy, zz = np.meshgrid(xs, xs, xs)
+            x_coords = xx.reshape((1, xx.shape[0] * xx.shape[1]))
+            y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
+            z_coords = zz.reshape((1, zz.shape[0] * zz.shape[1]))
+            points = np.vstack([x_coords, y_coords, z_coords])
+            quadrature_points = points[:,points[2,:] <= np.ones_like(points[0,:])-points[0,:]-points[1,:]]
+        else:
+            raise NotImplementedError("Mesh cell type not supported. Only supported types are: triangle, tetrahedron.")
 
-    # Assemble the numerator of detection
-    cells_detection_num = inner(discrete_levelset, v0) * cells_detection_dx
-    cells_detection_num_form = dfx.fem.form(cells_detection_num)
-    cells_detection_num_vec = assemble_vector(cells_detection_num_form)
-    # Assemble the denominator of detection
-    cells_detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * cells_detection_dx
-    cells_detection_denom_form = dfx.fem.form(cells_detection_denom)
-    cells_detection_denom_vec = assemble_vector(cells_detection_denom_form)
+        quadrature_weights = np.ones_like(quadrature_points[0,:])
+        custom_rule = {"quadrature_rule":    "custom",
+                       "quadrature_points":  quadrature_points.T,
+                       "quadrature_weights": quadrature_weights}
+        
+        cells_detection_dx = ufl.Measure("dx",
+                                        domain=mesh,
+                                        subdomain_data=detection_measure_subdomain,
+                                        metadata=custom_rule)
+        
+        detection_element = element("Lagrange", mesh.topology.cell_name(), degree)
+        detection_space = dfx.fem.functionspace(mesh, detection_element)
+        discrete_levelset = dfx.fem.Function(detection_space)
+        detection_expression = levelset.get_detection_expression()
+        discrete_levelset.interpolate(detection_expression)
+        # We localize at each cell via a DG0 test function.
+        DG0Element = element("DG", mesh.topology.cell_name(), 0)
+        V0 = dfx.fem.functionspace(mesh, DG0Element)
+        v0 = ufl.TestFunction(V0)
 
-    # cells_detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
-    # However, in practice it can happen that for a very small cut triangle, cells_detection_denom_vec is of the order of the machine precision.
-    # In this case, we set the value of cells_detection_vec to 0.5, meaning we consider the cell as cut.
-    mask = np.where(cells_detection_denom_vec.array > 0.)
-    cells_detection_vec = np.full_like(cells_detection_num_vec.array, 0.5)
-    cells_detection_vec[mask] = cells_detection_num_vec.array[mask]/cells_detection_denom_vec.array[mask]
+        # Assemble the numerator of detection
+        cells_detection_num = inner(discrete_levelset, v0) * cells_detection_dx
+        cells_detection_num_form = dfx.fem.form(cells_detection_num)
+        cells_detection_num_vec = assemble_vector(cells_detection_num_form)
+        # Assemble the denominator of detection
+        cells_detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * cells_detection_dx
+        cells_detection_denom_form = dfx.fem.form(cells_detection_denom)
+        cells_detection_denom_vec = assemble_vector(cells_detection_denom_form)
 
-    detection = dfx.fem.Function(V0)
-    detection.x.array[:] = cells_detection_vec
+        # cells_detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
+        # However, in practice it can happen that for a very small cut triangle, cells_detection_denom_vec is of the order of the machine precision.
+        # In this case, we set the value of cells_detection_vec to 0.5, meaning we consider the cell as cut.
+        mask = np.where(cells_detection_denom_vec.array > 0.)
+        cells_detection_vec = np.full_like(cells_detection_num_vec.array, 0.5)
+        cells_detection_vec[mask] = cells_detection_num_vec.array[mask]/cells_detection_denom_vec.array[mask]
+
+        detection = dfx.fem.Function(V0)
+        detection.x.array[:] = cells_detection_vec
+
+        cut_indices = np.where(np.logical_and(cells_detection_vec > -1.,
+                                              cells_detection_vec < 1.))[0]
+        
+        if detection_degree > 1:
+            neighbor_cells = f2c_map[c2f_map[cut_indices]]
+            detection_measure_subdomain = neighbor_cells
+
     
     exterior_indices = np.where(cells_detection_vec == 1.)[0]
     interior_indices = np.where(cells_detection_vec == -1.)[0]
-    cut_indices      = np.where(np.logical_and(cells_detection_vec > -1., 
-                                               cells_detection_vec < 1.))[0]
     
     if len(interior_indices) == 0:
         raise ValueError("No interior cells (1)!")
