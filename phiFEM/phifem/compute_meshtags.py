@@ -1,6 +1,5 @@
 from   basix.ufl import element
 import dolfinx as dfx
-from   dolfinx.fem import Function
 from   dolfinx.fem.petsc import assemble_vector
 from   dolfinx.mesh import Mesh, MeshTags
 import matplotlib.pyplot as plt
@@ -9,14 +8,12 @@ import numpy.typing as npt
 import ufl # type: ignore[import-untyped]
 from   ufl import inner
 
-from phiFEM.phifem.mesh_scripts import plot_mesh_tags, plot_dg0_function
 from phiFEM.phifem.continuous_functions import Levelset
 
 def tag_cells(mesh: Mesh,
               levelset: Levelset,
               detection_degree: int,
-              padding: bool = False,
-              plot: bool = False) -> MeshTags:
+              padding: bool = False) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| for each cell.
          detection == 1  => the cell is stricly OUTSIDE {phi_h < 0} => we tag it as 3
          detection == -1 => the cell is stricly INSIDE  {phi_h < 0} => we tag it as 1
@@ -26,7 +23,6 @@ def tag_cells(mesh: Mesh,
         mesh: the background mesh.
         discrete_levelset: the discretization of the levelset.
         padding: unused for the moment, TODO: implement the possiblity to add a padding.
-        plot: if True plots the mesh with tags (can drastically slow the computation!).
     
     Returns:
         The cells tags as a MeshTags object.
@@ -118,16 +114,6 @@ def tag_cells(mesh: Mesh,
                                    indices[sorted_indices],
                                    markers[sorted_indices])
 
-    if plot:
-        figure, ax = plt.subplots()
-        plot_mesh_tags(mesh, cells_tags, ax=ax, display_indices=False)
-        plt.savefig("./cells_tags.svg", format="svg", dpi=2400, bbox_inches="tight")
-        figure, ax = plt.subplots()
-        plot_dg0_function(mesh,
-                          detection,
-                          ax,
-                          detection_expression)
-        plt.savefig("./detection_function.png", bbox_inches="tight") #, format="svg", dpi=2400, bbox_inches="tight")
     return cells_tags
 
 def tag_facets(mesh: Mesh,
@@ -204,9 +190,5 @@ def tag_facets(mesh: Mesh,
                                     fdim,
                                     indices[sorted_indices],
                                     markers[sorted_indices])
-    
-    if plot:
-        figure, ax = plt.subplots()
-        plot_mesh_tags(mesh, facets_tags, ax=ax, display_indices=False)
-        plt.savefig("./facets_tags.svg", format="svg", dpi=2400, bbox_inches="tight")
+
     return facets_tags

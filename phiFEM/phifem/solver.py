@@ -282,12 +282,11 @@ class PhiFEMSolver:
             raise ValueError("The levelset has no expression.")
         self.levelset = levelset
 
-    def compute_tags(self, plot: bool = False) -> None:
+    def compute_tags(self) -> None:
         """ Compute the mesh tags.
 
         Args:
             padding: if True, computes an extra padding layer of cells to increase the chances to keep the level 0 curve of the levelset inside the submesh.
-            plot:    if True, plots the mesh tags (very slow).
         """
         self.print("Mesh tags computation.")
 
@@ -298,8 +297,7 @@ class PhiFEMSolver:
         
         self.bg_mesh_cells_tags= tag_cells(self.mesh,
                                            self.levelset,
-                                           self.detection_degree,
-                                           plot=plot)
+                                           self.detection_degree)
 
         working_cells_tags = self.bg_mesh_cells_tags
 
@@ -332,8 +330,7 @@ class PhiFEMSolver:
             working_mesh = self.submesh
 
         self.facets_tags = tag_facets(working_mesh,
-                                      working_cells_tags,
-                                      plot=plot)
+                                      working_cells_tags)
     
     def set_variational_formulation(self,
                                     sigma: float = 1.,
