@@ -151,7 +151,7 @@ class PhiFEMSolver:
             SolutionElement = element("Lagrange", self.submesh.topology.cell_name(), FE_degree + levelset_degree)
             SolutionSpace = dfx.fem.functionspace(self.submesh, SolutionElement)
         else:
-            SolutionSpace = self.levelset_space
+            SolutionSpace = self.FE_space
 
         phi_h = self.levelset.interpolate(SolutionSpace)
         wh = dfx.fem.Function(SolutionSpace)
