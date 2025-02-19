@@ -1,0 +1,25 @@
+# L-shaped test case
+initial_mesh_size: 0.1
+
+# Uniform refinement
+# iterations_number: 6
+# refinement_method: "uniform"
+
+# Adaptive refinement
+iterations_number: 20
+refinement_method: "H10"
+
+bbox:
+- [-1.5, 1.5]
+- [-1.5, 1.5]
+exact_error: true
+ref_degree: 2
+marking_parameter: 0.3
+use_fine_space: false
+box_mode: false
+finite_element_degree: 1
+levelset_degree: 1
+boundary_detection_degree: 4
+quadrature_degree: null
+stabilization_parameter: 1.0
+save_output: true
