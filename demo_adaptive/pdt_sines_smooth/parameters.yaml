@@ -1,7 +1,14 @@
 # Product of sines with smooth levelset test case
 initial_mesh_size: 0.1
-iterations_number: 15
-refinement_method: "H10"
+
+# Uniform refinement
+iterations_number: 6
+refinement_method: "uniform"
+
+# Adaptive refinement
+# iterations_number: 15
+# refinement_method: "H10"
+
 bbox:
 - [-1.5, 1.5]
 - [-1.5, 1.5]

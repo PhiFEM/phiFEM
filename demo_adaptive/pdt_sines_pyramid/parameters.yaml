@@ -19,6 +19,7 @@ box_mode: false
 finite_element_degree: 1
 levelset_degree: 1
 boundary_detection_degree: 1
+boundary_refinement_type: 'h'
 quadrature_degree: null
 stabilization_parameter: 1.0
 save_output: true
