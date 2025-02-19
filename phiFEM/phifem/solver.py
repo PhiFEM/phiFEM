@@ -37,8 +37,7 @@ class PhiFEMSolver:
                  box_mode: bool = False,
                  boundary_refinement_type: str = 'h',
                  num_step: int = 0,
-                 ref_strat: str = "uniform",
-                 save_output: bool = True) -> None:
+                 ref_strat: str = "uniform") -> None:
         """ Initialize a phiFEM solver.
 
         Args:
@@ -52,7 +51,6 @@ class PhiFEMSolver:
             boundary_refinement_type: set the boundary correction computation strategy, 'h' for h-refinement strategy, 'p' for p-refinement.
             num_step: refinement iteration number.
             ref_strat: the refinement strategy ('uniform' for uniform refinement, 'H10' for adaptive refinement based on the H10 residual estimator, 'L2' for adaptive refinement based on the L2 residual estimator).
-            save_output: if True, save the functions, meshes and values to the disk.
         """
         self.A: PETSc_Mat | None                  = None
         self.b: PETSc_Vec | None                  = None
@@ -83,7 +81,6 @@ class PhiFEMSolver:
         self.use_fine_space: bool                 = use_fine_space
         self.ref_strat: str                       = ref_strat
         self.rhs: ContinuousFunction | None       = None
-        self.save_output: bool                    = save_output
         self.solution_wh: Function | None         = None
         self.solution: Function | None            = None
         self.submesh: Mesh | None                 = None
@@ -119,11 +116,10 @@ class PhiFEMSolver:
 
     def print(self, str2print: str) -> None:
         """ Print the state of the solver."""
-        if self.save_output:
-            FE_degree = self.FE_element.basix_element.degree
+        FE_degree = self.FE_element.basix_element.degree
 
-            levelset_degree = self.levelset_element.basix_element.degree
-            print(f"Solver: phiFEM. Refinement: {self.ref_strat}. FE degree: {FE_degree}. Levelset degree: {levelset_degree}. Use fine space: {str(self.use_fine_space)}. Iteration n° {str(self.i).zfill(2)}. {str2print}")
+        levelset_degree = self.levelset_element.basix_element.degree
+        print(f"Solver: phiFEM. Refinement: {self.ref_strat}. FE degree: {FE_degree}. Levelset degree: {levelset_degree}. Use fine space: {str(self.use_fine_space)}. Iteration n° {str(self.i).zfill(2)}. {str2print}")
     
     def solve(self) -> None:
         """ Solve the phiFEM linear system."""
