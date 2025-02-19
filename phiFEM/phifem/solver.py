@@ -207,12 +207,12 @@ class PhiFEMSolver:
             raise ValueError("SOLVER_NAME.solution is None, did you forget to solve ? (SOLVER_NAME.solve)")
         return self.solution
     
-    def get_eta_h_H10(self) -> Function:
+    def get_H10_residual(self) -> Function:
         if self.eta_h_H10 is None:
             raise ValueError("SOLVER_NAME.eta_h_H10 is None, did you forget to compute the residual estimators ? (SOLVER_NAME.estimate_residual)")
         return self.eta_h_H10
     
-    def get_eta_h_L2(self) -> Function:
+    def get_L2_residual(self) -> Function:
         if self.eta_h_L2 is None:
             raise ValueError("SOLVER_NAME.eta_h_L2 is None, did you forget to compute the residual estimators ? (SOLVER_NAME.estimate_residual)")
         return self.eta_h_L2
