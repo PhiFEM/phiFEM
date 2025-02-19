@@ -223,15 +223,13 @@ class PhiFEMRefinementLoop:
 
             if self.exact_error:
                 expression_u_exact = self.exact_solution.expression
-                global_H10_error, global_L2_error, H10_local_errors, L2_local_errors, _, _ = compute_exact_error(uh,
+                global_H10_error, global_L2_error, _, _ = compute_exact_error(uh,
                                                                                                                  self.rhs,
                                                                                                                  output_path=self.results_saver.output_path,
                                                                                                                  iteration_num=i,
                                                                                                                  phifem_measure=dx,
                                                                                                                  expression_u_exact=expression_u_exact)
-                self.results_saver.save_function(H10_local_errors, f"H10_error_{str(i).zfill(2)}")
                 self.results_saver.add_new_value("H10 error", global_H10_error)
-                self.results_saver.save_function(L2_local_errors,  f"L2_error_{str(i).zfill(2)}")
                 self.results_saver.add_new_value("L2 error", global_L2_error)
                 self.results_saver.add_new_value("H10 efficiency", global_eta_H10/global_H10_error)
                 self.results_saver.add_new_value("L2 efficiency",  global_eta_L2/global_L2_error)

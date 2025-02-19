@@ -169,49 +169,51 @@ def compute_exact_error(solution,
     global_H10_error = np.sqrt(H10_error_0.x.array.sum())
 
     # We reinterpolate the local exact errors back to the current mesh for an easier comparison with the estimators
-    current_mesh_ref_element = element("Lagrange", current_mesh.topology.cell_name(), ref_degree)
-    current_mesh_V_ref = dfx.fem.functionspace(current_mesh, current_mesh_ref_element)
-    e_ref_current_mesh = dfx.fem.Function(current_mesh_V_ref)
-    num_cells = current_mesh.topology.index_map(tdim).size_global
-    nmm = dfx.fem.create_interpolation_data(solution.function_space,
-                                            reference_space,
-                                            np.arange(num_cells),
-                                            padding=interpolation_padding)
-    e_ref_current_mesh.interpolate_nonmatching(e_ref,
-                                               np.arange(num_cells),
-                                               interpolation_data=nmm)
+    # TODO: this is broken since dolfinx Commit ab79530
+
+    # current_mesh_ref_element = element("Lagrange", current_mesh.topology.cell_name(), ref_degree)
+    # current_mesh_V_ref = dfx.fem.functionspace(current_mesh, current_mesh_ref_element)
+    # e_ref_current_mesh = dfx.fem.Function(current_mesh_V_ref)
+    # num_cells = current_mesh.topology.index_map(tdim).size_global
+    # nmm = dfx.fem.create_interpolation_data(solution.function_space,
+    #                                         reference_space,
+    #                                         np.arange(num_cells),
+    #                                         padding=interpolation_padding)
+    # e_ref_current_mesh.interpolate_nonmatching(e_ref,
+    #                                            np.arange(num_cells),
+    #                                            interpolation_data=nmm)
     
-    e_ref_reinterp = dfx.fem.Function(solution.function_space)
-    e_ref_reinterp.interpolate(e_ref_current_mesh)
+    # e_ref_reinterp = dfx.fem.Function(solution.function_space)
+    # e_ref_reinterp.interpolate(e_ref_current_mesh)
 
-    with XDMFFile(current_mesh.comm, "./e_ref.xdmf", 'w') as of:
-        of.write_mesh(current_mesh)
-        of.write_function(e_ref_reinterp)
+    # with XDMFFile(current_mesh.comm, "./e_ref.xdmf", 'w') as of:
+    #     of.write_mesh(current_mesh)
+    #     of.write_function(e_ref_reinterp)
 
-    DG0Element_current_mesh = element("DG", current_mesh.topology.cell_name(), 0)
-    V0_current_mesh = dfx.fem.functionspace(current_mesh, DG0Element_current_mesh)
+    # DG0Element_current_mesh = element("DG", current_mesh.topology.cell_name(), 0)
+    # V0_current_mesh = dfx.fem.functionspace(current_mesh, DG0Element_current_mesh)
 
-    w0 = ufl.TestFunction(V0_current_mesh)
+    # w0 = ufl.TestFunction(V0_current_mesh)
 
-    if phifem_measure is None:
-        dx = ufl.Measure("dx",
-                         domain=current_mesh,
-                         metadata={"quadrature_degree": 2 * (ref_degree + 1)})
-    else:
-        dx = phifem_measure(1) + phifem_measure(2)
+    # if phifem_measure is None:
+    #     dx = ufl.Measure("dx",
+    #                      domain=current_mesh,
+    #                      metadata={"quadrature_degree": 2 * (ref_degree + 1)})
+    # else:
+    #     dx = phifem_measure(1) + phifem_measure(2)
 
-    L2_norm_local  = inner(inner(e_ref_current_mesh, e_ref_current_mesh), w0) * dx
-    H10_norm_local = inner(inner(grad(e_ref_current_mesh), grad(e_ref_current_mesh)), w0) * dx
+    # L2_norm_local  = inner(inner(e_ref_current_mesh, e_ref_current_mesh), w0) * dx
+    # H10_norm_local = inner(inner(grad(e_ref_current_mesh), grad(e_ref_current_mesh)), w0) * dx
 
-    L2_error_0_current_mesh  = dfx.fem.Function(V0_current_mesh)
-    H10_error_0_current_mesh = dfx.fem.Function(V0_current_mesh)
+    # L2_error_0_current_mesh  = dfx.fem.Function(V0_current_mesh)
+    # H10_error_0_current_mesh = dfx.fem.Function(V0_current_mesh)
 
-    L2_norm_local_form = dfx.fem.form(L2_norm_local)
-    L2_norm_local_form_assembled = assemble_vector(L2_norm_local_form)
-    L2_error_0_current_mesh.x.array[:] = L2_norm_local_form_assembled.array
+    # L2_norm_local_form = dfx.fem.form(L2_norm_local)
+    # L2_norm_local_form_assembled = assemble_vector(L2_norm_local_form)
+    # L2_error_0_current_mesh.x.array[:] = L2_norm_local_form_assembled.array
 
-    H10_norm_local_form = dfx.fem.form(H10_norm_local)
-    H10_norm_local_form_assembled = assemble_vector(H10_norm_local_form)
-    H10_error_0_current_mesh.x.array[:] = H10_norm_local_form_assembled.array
+    # H10_norm_local_form = dfx.fem.form(H10_norm_local)
+    # H10_norm_local_form_assembled = assemble_vector(H10_norm_local_form)
+    # H10_error_0_current_mesh.x.array[:] = H10_norm_local_form_assembled.array
 
-    return global_H10_error, global_L2_error, H10_error_0_current_mesh, L2_error_0_current_mesh, u_ref, e_ref
+    return global_H10_error, global_L2_error, u_ref, e_ref
