@@ -1,7 +1,7 @@
 import itertools
 import numpy as np
 import pytest
-from phiFEM.phifem.poisson_dirichlet import FEMRefinementLoop
+from FEM.poisson_dirichlet import FEMRefinementLoop
 from phiFEM.phifem.continuous_functions import Levelset
 
 """

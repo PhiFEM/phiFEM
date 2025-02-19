@@ -1,6 +1,7 @@
 import jax.numpy as jnp
 import numpy as np
 
+
 def atan_r(x, radius=1., slope=1.):
     r = np.sqrt(np.square(x[0, :]) + np.square(x[1, :]))
     r0 = np.full_like(r, radius)
@@ -9,7 +10,7 @@ def atan_r(x, radius=1., slope=1.):
 
 # Implementation of a graded smooth-min function inspired from: https://iquilezles.org/articles/smin/
 def smin(x, y_1, y_2, kmin=0., kmax=1.):
-    k = kmax * ((np.pi/2. - atan_r(x, radius=2., slope=50.))/np.pi/2.) + kmin
+    k = kmax * ((np.pi/2. - atan_r(x, radius=3., slope=15.))/np.pi/2.) + kmin
     return np.maximum(k, np.minimum(y_1, y_2)) - np.linalg.norm(np.maximum(np.vstack([k, k]) - np.vstack([y_1, y_2]), 0.), axis=0)
 
 # Levelset and RHS expressions taken from: https://academic.oup.com/imajna/article-abstract/42/1/333/6041856?redirectedFrom=fulltext

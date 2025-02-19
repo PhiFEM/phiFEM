@@ -2,6 +2,7 @@ h5py
 jax
 lxml
 meshio
+mypy
 mypy_extensions
 pandas
 pygmsh
