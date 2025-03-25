@@ -39,8 +39,8 @@ def compute_outward_normal(mesh: Mesh, levelset: Levelset) -> Function:
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
     w0 = dfx.fem.Function(W0)
-    w0.sub(0).interpolate(dfx.fem.Expression(normal_Omega_h[0], W0.sub(0).element.interpolation_points()))
-    w0.sub(1).interpolate(dfx.fem.Expression(normal_Omega_h[1], W0.sub(1).element.interpolation_points()))
+    w0.sub(0).interpolate(dfx.fem.Expression(normal_Omega_h[0], W0.sub(0).element.interpolation_points))
+    w0.sub(1).interpolate(dfx.fem.Expression(normal_Omega_h[1], W0.sub(1).element.interpolation_points))
 
     w0.sub(0).x.array[:] = np.nan_to_num(w0.sub(0).x.array, nan=0.0)
     w0.sub(1).x.array[:] = np.nan_to_num(w0.sub(1).x.array, nan=0.0)
