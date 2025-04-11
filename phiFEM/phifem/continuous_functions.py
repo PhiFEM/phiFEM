@@ -56,11 +56,11 @@ class ContinuousFunction:
             The dict of interpolations, with a new entry if needed.
         """
         element = FE_space.element
-        if element not in self.interpolations.keys():
-            interpolation = Function(FE_space)
-            interpolation.interpolate(self.__call__)
-            self.interpolations[element] = interpolation
-        return self.interpolations[element]
+        # if element not in self.interpolations.keys():
+        interpolation = Function(FE_space)
+        interpolation.interpolate(self.__call__)
+        # self.interpolations[element] = interpolation
+        return interpolation #self.interpolations[element]
             
 class Levelset(ContinuousFunction):
     """ Class to represent a levelset function as a continuous function."""

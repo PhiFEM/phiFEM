@@ -83,7 +83,7 @@ def compute_exact_error(solution,
     reference_hmin = dfx.cpp.mesh.h(reference_mesh._cpp_object, tdim, np.arange(num_cells)).min()
     while (reference_hmin > current_hmin):
         reference_mesh.topology.create_entities(reference_mesh.topology.dim - 1)
-        reference_mesh = dfx.mesh.refine(reference_mesh)
+        reference_mesh, _, _ = dfx.mesh.refine(reference_mesh)
         # Computes hmin in order to ensure that the reference mesh is fine enough
         tdim = reference_mesh.topology.dim
         num_cells = reference_mesh.topology.index_map(tdim).size_global

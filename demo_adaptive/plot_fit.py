@@ -19,7 +19,7 @@ def plot_fit(ax, data_dir, norm, label, cutoff=-3, style="-^", list_dofs=None, l
     key2label = {"H10 estimator": r"$\eta$",
                  "L2 estimator":  r"$\nu$",
                  "H10 error":     r"$|u_{\mathrm{ref}} - u_h|_{H^1(\Omega)}$",
-                 "L2 error":      r"$\|u_{\mathrm{ref}} - u_h\|_{L^2(\Omega)}"}
+                 "L2 error":      r"$\|u_{\mathrm{ref}} - u_h\|_{L^2(\Omega)}$"}
 
     slopes = defaultdict(list)
     for key in [k for k in df.keys() if (norm in k) and ("efficiency" not in k) and ("eta" not in k)]:
