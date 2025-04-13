@@ -4,7 +4,7 @@ from dolfinx.io import XDMFFile
 from mpi4py import MPI
 import numpy as np
 import pytest
-from phiFEM.phifem.compute_meshtags import tag_cells, tag_facets
+from phiFEM.phifem.mesh_scripts import _tag_cells, _tag_facets
 from phiFEM.phifem.continuous_functions import Levelset
 import os
 from test_outward_normal import create_disk # type: ignore
@@ -31,9 +31,9 @@ def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, 
         mesh = fi.read_mesh()
     
     # Test computation of cells tags
-    cells_tags = tag_cells(mesh, levelset, 1)
+    cells_tags = _tag_cells(mesh, levelset, 1)
     # Test computation of facets tags when cells tags are provided
-    facets_tags = tag_facets(mesh, cells_tags)
+    facets_tags = _tag_facets(mesh, cells_tags)
 
     # To save benchmark
     if save_as_benchmark:
@@ -98,13 +98,13 @@ if __name__=="__main__":
     discrete_levelset = dfx.fem.Function(V)
     discrete_levelset.interpolate(levelset.expression)
 
-    cells_tags = tag_cells(mesh,
-                           discrete_levelset,
-                           plot=False)
+    cells_tags = _tag_cells(mesh,
+                            discrete_levelset,
+                            plot=False)
 
-    facets_tags = tag_facets(mesh,
-                             discrete_levelset,
-                             cells_tags,
-                             plot=True)
+    facets_tags = _tag_facets(mesh,
+                              discrete_levelset,
+                              cells_tags,
+                              plot=True)
 
     test_compute_meshtags("0", "disk", levelset, "celltags_1", "facettags_1", save_as_benchmark=False)

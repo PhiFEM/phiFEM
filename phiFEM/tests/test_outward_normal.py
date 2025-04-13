@@ -1,65 +1,17 @@
-from basix.ufl import element
 import dolfinx as dfx
 from dolfinx.io import XDMFFile
-from lxml import etree
 from mpi4py import MPI
-import meshio # type: ignore
 import numpy as np
-import pygmsh as pg # type: ignore
 import pytest
 import os
 
-from phiFEM.phifem.compute_meshtags import tag_cells, tag_facets
+from phiFEM.phifem.mesh_scripts import _tag_cells, _tag_facets
 from phiFEM.phifem.continuous_functions import Levelset
-from phiFEM.phifem.mesh_scripts import (reshape_facets_map,
+from phiFEM.phifem.mesh_scripts import (_reshape_facets_map,
                                         compute_outward_normal)
+from tests_data.utils import create_square, create_disk
 
 parent_dir = os.path.dirname(__file__)
-
-def create_square(mesh_path, lcar):
-    mesh_corners = np.array([[-1.5, -1.5],
-                             [1.5, 1.5]])
-    nx = int(np.abs(mesh_corners[1, 0] - mesh_corners[0, 0]) * np.sqrt(2.) / lcar)
-    ny = int(np.abs(mesh_corners[1, 1] - mesh_corners[0, 1]) * np.sqrt(2.) / lcar)
-    mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, mesh_corners, [nx, ny])
-
-    with XDMFFile(mesh.comm, os.path.join("tests_data", "square.xdmf"), "w") as of:
-        of.write_mesh(mesh)
-
-def create_disk(mesh_path, lcar):
-    with pg.geo.Geometry() as geom:
-        # Points
-        p1 = geom.add_point([0.,   0., 0.], lcar)
-        p2 = geom.add_point([0.5,  0., 0.], lcar)
-        p3 = geom.add_point([-0.5, 0., 0.], lcar)
-
-        # Lines
-        c1 = geom.add_circle_arc(p2, p1, p3)
-        c2 = geom.add_circle_arc(p3, p1, p2)
-
-        # Suface
-        lloop = geom.add_curve_loop([c1, c2])
-        surf = geom.add_plane_surface(lloop)
-
-        mesh = geom.generate_mesh(dim=2, algorithm=6)
-
-    mesh.points = mesh.points[:, :2]
-
-    for cell_block in mesh.cells:
-        if cell_block.type == 'triangle':
-            triangle_cells = [("triangle", cell_block.data)]
-
-    meshio.write_points_cells(mesh_path, mesh.points, triangle_cells)
-
-    # meshio and dolfinx use incompatible Grid names ("Grid" for meshio and "mesh" for dolfinx)
-    # the lines below change the Grid name from "Grid" to "mesh" to ensure the compatibility between meshio and dolfinx.
-    tree = etree.parse(mesh_path)
-    root = tree.getroot()
-
-    for grid in root.findall(".//Grid"):
-        grid.set("Name", "mesh")
-    
-    tree.write(mesh_path, pretty_print=True, xml_declaration=True, encoding="UTF-8")
 
 def rotation(angle, x):
     return (np.cos(angle)*x[0] + np.sin(angle)*x[1], -np.sin(angle)*x[0] + np.cos(angle)*x[1])
@@ -95,8 +47,8 @@ def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
     cdim = mesh.topology.dim
     fdim = mesh.topology.dim - 1
 
-    cells_tags  = tag_cells(mesh, levelset, 1)
-    facets_tags = tag_facets(mesh, cells_tags)
+    cells_tags  = _tag_cells(mesh, levelset, 1)
+    facets_tags = _tag_facets(mesh, cells_tags)
     w0 = compute_outward_normal(mesh, levelset)
 
     if save_normal:
@@ -114,7 +66,7 @@ def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
     points = mesh.geometry.x
 
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
-    f2c_map = reshape_facets_map(f2c_connect)
+    f2c_map = _reshape_facets_map(f2c_connect)
     mask = np.where(facets_tags.values == 4)
     f2c_map[mask]
 
