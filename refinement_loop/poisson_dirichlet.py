@@ -56,6 +56,7 @@ class PhiFEMRefinementLoop:
                                                                               refinement_method))
         self.stabilization_parameter: float       = stabilization_parameter
         self.use_fine_space: bool                 = False
+        self.source_dir                           = source_dir
 
     def set_parameters(self, parameters: dict[str, Any], expressions: dict[str, NDArrayFunction]):
         self.bbox                      = np.asarray(parameters["bbox"])
@@ -178,6 +179,30 @@ class PhiFEMRefinementLoop:
             phiFEM_solver.set_source_term(self.rhs)
             phiFEM_solver.set_levelset(self.levelset)
             phiFEM_solver.compute_tags()
+
+            import matplotlib.pyplot as plt
+            from utils.mesh_scripts import plot_mesh, plot_mesh_tags
+
+            bg_mesh = phiFEM_solver.mesh
+            submesh = phiFEM_solver.submesh
+            expression_detection_levelset = phiFEM_solver.levelset.detection_expression
+            bbox = np.array([[-0.5, 0.5],[-0.5, 0.5]])
+            fig = plt.figure()
+            ax = fig.subplots()
+            plot_mesh_tags(bg_mesh, phiFEM_solver.bg_mesh_cells_tags, ax, expression_levelset=expression_detection_levelset, linewidth=1.5, contour="yellow")
+            plt.savefig(f"flower_smooth/output_phiFEM/cells_tags_{str(i).zfill(2)}.png", dpi=300, bbox_inches="tight")
+
+            fig = plt.figure()
+            ax = fig.subplots()
+            plot_mesh_tags(submesh, phiFEM_solver.facets_tags, ax, expression_levelset=expression_detection_levelset, linewidth=3.5, contour="yellow", colormap="tab20c")
+            plt.savefig(f"flower_smooth/output_phiFEM/facets_tags_{str(i).zfill(2)}.png", dpi=300, bbox_inches="tight")
+
+            fig = plt.figure()
+            ax = fig.subplots()
+            plot_mesh(working_mesh, bbox, ax=ax, expression_levelset=expression_detection_levelset,
+            linewidth=1.5)
+            plt.savefig(f"flower_smooth/output_phiFEM/working_mesh_{str(i).zfill(2)}.png", dpi=300, bbox_inches="tight")
+
             v0, dx, dS, num_dofs = phiFEM_solver.set_variational_formulation(sigma=self.stabilization_parameter,
                                                                              quadrature_degree=self.quadrature_degree)
             phiFEM_solver.assemble()
@@ -231,9 +256,11 @@ class PhiFEMRefinementLoop:
                                                                               output_path=self.results_saver.output_path,
                                                                               iteration_num=i,
                                                                               phifem_measure=dx,
-                                                                              expression_u_exact=expression_u_exact)
-                self.results_saver.add_new_value("H10 error", global_H10_error)
-                self.results_saver.add_new_value("L2 error", global_L2_error)
+                                                                              expression_u_exact=expression_u_exact,
+                                                                              extra_ref=0,
+                                                                              reference_mesh_path=os.path.join(self.source_dir, "meshes", f"flower_mesh_{str(i).zfill(2)}.xdmf"))
+                self.results_saver.add_new_value("H10 error",      global_H10_error)
+                self.results_saver.add_new_value("L2 error",       global_L2_error)
                 self.results_saver.add_new_value("H10 efficiency", global_eta_H10/global_H10_error)
                 self.results_saver.add_new_value("L2 efficiency",  global_eta_L2/global_L2_error)
 

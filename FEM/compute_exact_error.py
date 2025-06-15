@@ -62,7 +62,7 @@ def compute_exact_error(solution,
                 print(f"Conforming mesh n°{str(iteration_num).zfill(2)} not found. In order to compute the exact errors, you must have run the FEM refinement loop first.")
     else:
         with XDMFFile(MPI.COMM_WORLD, reference_mesh_path, "r") as fi:
-            reference_mesh = fi.read_mesh()
+            reference_mesh = fi.read_mesh(name="Grid")
 
     # Computes the hmin in order to compare with reference mesh
     if solution is None:
