@@ -18,7 +18,7 @@ def plot_efficiencies(data_dir, norm, label, style="-^"):
         print(key)
         vals = df[key].values
         keylab = key2label[key]
-        plt.plot(iterations, vals, style, label=keylab + ", " + label)
+        plt.plot(iterations, vals, style, label=keylab + " " + label)
 
 if __name__=="__main__":
     demos_list = [demo for demo in next(os.walk("."))[1] if "__" not in demo]
@@ -64,7 +64,7 @@ if __name__=="__main__":
 
     list_ref_strats = ref_strats.split("-")
     if ref_strats in ["uniform-H10", "uniform-L2"]:
-        label_ref_strats = {"H10": "adapt.", "L2": "adapt.", "uniform": "unif."}
+        label_ref_strats = {"H10": "(adapt.)", "L2": "(adapt.)", "uniform": "(unif.)"}
     else:
         label_ref_strats = {"H10": "", "L2": "", "uniform": ""}
     label_solver = {"FEM": "FEM", "phiFEM": r"$\varphi$-FEM"}
@@ -85,6 +85,6 @@ if __name__=="__main__":
             plot_efficiencies(data_dir, norm, label, style=style+marker)
     
     plt.xlabel("Iteration num.")
-    ax.set_ylim([0., 10.])
+    #ax.set_ylim([0., 10.])
     plt.legend()
     plt.savefig(os.path.join(save_dir, "plot_efficiencies_" + norm + "_" + ref_strats + ".pdf"), bbox_inches="tight")

@@ -763,7 +763,7 @@ class PhiFEMSolver:
             eta_E = avg(h_E)**3 * inner(inner(J_h, J_h), avg(w0)) * (dS(1) + dS(2))
             eta_geometry = inner(geometry_correction, w0) * (dx(1) + dx(2))
 
-        eta = eta_T + eta_E + eta_geometry
+        eta = eta_T + eta_E #+ eta_geometry
 
         eta_boundary = None
         if boundary_term:

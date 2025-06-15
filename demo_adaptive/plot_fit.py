@@ -25,7 +25,7 @@ def plot_fit(ax, data_dir, norm, label, cutoff=-3, style="-^", list_dofs=None, l
     for key in [k for k in df.keys() if (norm in k) and ("efficiency" not in k) and ("eta" not in k)]:
         vals = df[key].values
         keylab = key2label[key]
-        leg_label = keylab + " (" + label + ")"
+        leg_label = keylab + " " + label
         a, b = np.polyfit(np.log(dofs[cutoff:]), np.log(vals[cutoff:]), 1)
         slopes[key].append(np.round(a,2))
         ax.loglog(dofs, vals, style, label=leg_label)
@@ -89,7 +89,7 @@ if __name__=="__main__":
 
     list_ref_strats = ref_strats.split("-")
     if ref_strats in ["uniform-H10", "uniform-L2"]:
-        label_ref_strats = {"H10": "adapt.", "L2": "adapt.", "uniform": "unif."}
+        label_ref_strats = {"H10": "(adapt.)", "L2": "(adapt.)", "uniform": "(unif.)"}
     else:
         label_ref_strats = {"H10": "", "L2": "", "uniform": ""}
     label_solver = {"FEM": "FEM", "phiFEM": r"$\varphi$-FEM"}
@@ -113,7 +113,7 @@ if __name__=="__main__":
             tuple_lst_dofs[i] = list_dofs
             tuple_lst_vals[i] = list_vals
     
-    for i, slope, gap in zip(range(2), [-0.4, -0.5], [0.04, -0.04]):
+    for i, slope, gap in zip(range(2), [-0.5, -0.5], [-0.04, -0.04]):
         lst_dofs = tuple_lst_dofs[i]
         lst_vals = tuple_lst_vals[i]
         if len(lst_vals) > 0:
