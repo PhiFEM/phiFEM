@@ -2,7 +2,7 @@ from   basix.ufl         import element
 from   collections.abc   import Callable
 import dolfinx           as dfx
 from   dolfinx.cpp.graph import AdjacencyList_int32 # type: ignore
-from   dolfinx.fem       import Function
+from   dolfinx.fem       import Function, FunctionSpace
 from   dolfinx.fem.petsc import assemble_vector
 from   dolfinx.mesh      import Mesh, MeshTags
 import numpy             as np
@@ -34,7 +34,7 @@ def compute_outward_normal(mesh: Mesh, levelset: Levelset) -> Function:
     DG0VecElement = element("DG", mesh.topology.cell_name(), 0, shape=(mesh.topology.dim,))
     W0 = dfx.fem.functionspace(mesh, DG0VecElement)
     ext = dfx.fem.Function(V)
-    ext.interpolate(levelset.exterior(0.))
+    ext.interpolate(lambda x: levelset(x) > 0.)
 
     # Compute the unit outwards normal, but the scaling might create NaN where grad(ext) = 0
     normal_Omega_h = grad(ext) / (ufl.sqrt(inner(grad(ext), grad(ext))))
@@ -110,7 +110,7 @@ def _transfer_cells_tags(source_mesh_cells_tags: MeshTags,
     return dest_cells_tags
 
 def _tag_cells(mesh: Mesh,
-              levelset: Levelset,
+              detection_levelset: NDArrayFunction,
               detection_degree: int) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| for each cell.
          detection == 1  => the cell is stricly OUTSIDE {phi_h < 0} => we tag it as 3
@@ -176,8 +176,7 @@ def _tag_cells(mesh: Mesh,
         detection_element = element("Lagrange", mesh.topology.cell_name(), degree)
         detection_space = dfx.fem.functionspace(mesh, detection_element)
         discrete_levelset = dfx.fem.Function(detection_space)
-        detection_expression = levelset.get_detection_expression()
-        discrete_levelset.interpolate(detection_expression)
+        discrete_levelset.interpolate(detection_levelset)
         # We localize at each cell via a DG0 test function.
         DG0Element = element("DG", mesh.topology.cell_name(), 0)
         V0 = dfx.fem.functionspace(mesh, DG0Element)
@@ -319,26 +318,26 @@ def _tag_facets(mesh: Mesh,
     return facets_tags
 
 def compute_tags(mesh: Mesh,
-                 levelset: Levelset,
+                 detection_levelset: NDArrayFunction,
                  detection_degree: int,
-                 keep_mesh: bool = True) -> Tuple[MeshTags, Mesh | None]:
+                 box_mode: bool = False) -> Tuple[MeshTags, Mesh | None]:
     """ Compute the mesh tags.
 
     Args:
         mesh: the mesh on which we compute the tags.
         levelset: the levelset function used to discriminate the cells.
         detection_degree: the degree of the piecewise-polynomial approximation to the levelset.
-        keep_mesh: if True (default), returns cells tags on the input mesh, if False, create a submesh and return the cells tags on the submesh.
+        box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
     
     Returns
         The mesh/submesh cells tags.
         The mesh/submesh facets tags.
-        The submesh (None is keep_mesh is True).
+        The mesh (input mesh if box_mode is True).
     """
-    cells_tags = _tag_cells(mesh, levelset, detection_degree)
+    cells_tags = _tag_cells(mesh, detection_levelset, detection_degree)
 
-    if keep_mesh:
-        submesh = None
+    if box_mode:
+        submesh = mesh
         facets_tags = _tag_facets(mesh, cells_tags)
     else:
         # We create the submesh
@@ -352,3 +351,159 @@ def compute_tags(mesh: Mesh,
         facets_tags = _tag_facets(submesh, cells_tags)
 
     return cells_tags, facets_tags, submesh
+
+
+def compute_levelset_boundary_error(mesh: Mesh,
+                                    levelset: NDArrayFunction,
+                                    levelset_space: FunctionSpace,
+                                    entities_tags: MeshTags,
+                                    refinement_type: str) -> Function:
+    """ Compute the boundary correction function.
+
+    Args:
+        mesh: the mesh.
+        levelset: the levelset expression.
+        entities_tags: the cells tags if refinement_type=='p', the facets tags if refinement_type=='h'.
+        refinement_type: 'p' for p-refinement boundary correction, 'h' for h-refinement boundary correction.
+    
+    Returns: the correction function.
+    """
+    if refinement_type not in ['p', 'h']:
+        raise ValueError("refinement_type must be 'p' or 'h'.")
+    
+    phi_h = dfx.fem.Function(levelset_space)
+    phi_h.interpolate(levelset)
+
+    if refinement_type=='p':
+        """
+        p-refinement boundary correction
+        correction_function = (φ_h - φ_f) w_h
+        where:
+        - φ_h is the discretization of the levelset in the levelset space.
+        - φ_f is the discretization of the levelset in a p-finer space (lagrange of degree levelset_degree + 1).
+        """
+        if entities_tags.dim != mesh.topology.dim:
+            raise ValueError("In 'p' refinement, the entities_tags must be of same dim as the mesh (cells).")
+
+        levelset_degree = levelset_space.element.basix_element.degree
+        CGfElement = element("Lagrange", mesh.topology.cell_name(), levelset_degree + 1)
+        V_correction = dfx.fem.functionspace(mesh, CGfElement)
+
+        # Get the dofs except those on the cut cells
+        cut_cells = entities_tags.find(2)
+        cut_cells_dofs = dfx.fem.locate_dofs_topological(V_correction, 2, cut_cells)
+        num_dofs_global = V_correction.dofmap.index_map.size_global \
+                          * V_correction.dofmap.index_map_bs
+        all_dofs = np.arange(num_dofs_global)
+        uncut_cells_dofs = np.setdiff1d(all_dofs, cut_cells_dofs)
+
+        phih_correction = dfx.fem.Function(V_correction)
+        phih_correction.interpolate(phi_h)
+
+        phi_correction = dfx.fem.Function(V_correction)
+        phi_correction.interpolate(levelset)
+
+        correction_function_V = dfx.fem.Function(V_correction)
+        correction_function_V.x.array[:] = (phih_correction.x.array[:] - phi_correction.x.array[:])
+        correction_function_V.x.array[uncut_cells_dofs] = 0.
+    elif refinement_type=='h':
+        """
+        h-refinement boundary correction.
+        correction_function = (φ_h - φ_f) w_f
+        where:
+        - φ_h is the discretization of the levelset in the levelset space.
+        - φ_f is the interpolation of φ in the h-finer space (based on a mesh locally refined around Ω_h^Γ).
+        All the functions have to be interpolated in the same space (the correction space) prior the computation of the correction function.
+        Then all the functions are interpolated back to the mesh in a higher order space (to keep the features from the finer mesh).
+        """
+        if entities_tags.dim != mesh.topology.dim - 1:
+            raise ValueError("In 'h' refinement, the entities_tags must be equal to mesh.topology.dim - 1 (facets).")
+
+        cut_facets = entities_tags.find(2)
+
+        # dfx.mesh.refine MODIFIES the input mesh preventing the computation of the estimator below.
+        # To avoid it I follow the trick from https://fenicsproject.discourse.group/t/strange-behavior-after-using-create-mesh/14887/3
+        # I create a dummy_mesh as a submesh that is in fact a copy of mesh and the refinement is made from dummy_mesh.
+        num_cells = mesh.topology.index_map(mesh.topology.dim).size_global
+        dummy_mesh = dfx.mesh.create_submesh(mesh, mesh.topology.dim, np.arange(num_cells))[0]
+        dummy_mesh.topology.create_entities(dummy_mesh.topology.dim - 1)
+        correction_mesh, _, _ = dfx.mesh.refine(dummy_mesh, cut_facets)
+
+        CGhfElement = element("Lagrange",
+                              correction_mesh.topology.cell_name(),
+                              levelset_space.ufl_element().degree)
+        V_correction = dfx.fem.functionspace(correction_mesh, CGhfElement)
+        cdim = correction_mesh.topology.dim
+        num_cells = correction_mesh.topology.index_map(cdim).size_global
+        correction_mesh_cells = np.arange(num_cells)
+        nmm = dfx.fem.create_interpolation_data(
+                        V_correction,
+                        levelset_space,
+                        correction_mesh_cells,
+                        padding=1.e-14)
+
+        phih_correction = dfx.fem.Function(V_correction)
+        phih_correction.interpolate_nonmatching(phi_h,
+                                                correction_mesh_cells,
+                                                interpolation_data=nmm)
+
+        phif_correction = dfx.fem.Function(V_correction)
+        phif_correction.interpolate(levelset)
+
+        correction_function = dfx.fem.Function(V_correction)
+        correction_function.x.array[:] = (phih_correction.x.array[:] - phif_correction.x.array[:])
+
+        CGpfElement = element("Lagrange",
+                              mesh.topology.cell_name(),
+                              levelset_space.ufl_element().degree + 1)
+        V_working = dfx.fem.functionspace(mesh, CGpfElement)
+
+        cdim = mesh.topology.dim
+        num_cells = mesh.topology.index_map(cdim).size_global
+        working_mesh_cells = np.arange(num_cells)
+
+        nmm = dfx.fem.create_interpolation_data(
+                        V_working,
+                        V_correction,
+                        working_mesh_cells,
+                        padding=1.e-14)
+    
+        correction_function_V = dfx.fem.Function(V_working)
+        correction_function_V.interpolate_nonmatching(correction_function, 
+                                                      working_mesh_cells,
+                                                      interpolation_data=nmm)
+    return correction_function_V
+
+def marking(estimator, theta: float = 0.3) -> npt.NDArray[np.float64]:
+    """ Perform Dörfler marking strategy.
+
+    Args:
+        estimator: the local values used to mark the cells.
+        theta: the marking parameter.
+    
+    Returns: the indices of the marked facets.
+    """
+
+    mesh = estimator.function_space.mesh
+    cdim = mesh.topology.dim
+    fdim = cdim - 1
+    assert(mesh.comm.size == 1)
+
+    eta_global = sum(estimator.x.array)
+    cutoff = theta * eta_global
+
+    sorted_cells = np.argsort(estimator.x.array)[::-1]
+    rolling_sum = 0.0
+    for j, e in enumerate(estimator.x.array[sorted_cells]):
+        rolling_sum += e
+        if rolling_sum > cutoff:
+            breakpoint = j
+            break
+
+    refine_cells = sorted_cells[0:breakpoint + 1]
+    indices = np.array(np.sort(refine_cells), dtype=np.int32)
+    c2f_connect = mesh.topology.connectivity(cdim, fdim)
+    num_facets_per_cell = len(c2f_connect.links(0))
+    c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+    facets_indices: npt.NDArray[np.float64] = np.unique(np.sort(c2f_map[indices]))
+    return facets_indices
