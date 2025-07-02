@@ -285,7 +285,7 @@ for i in range(50):
         eta_dbc_L2 = h_T**(-1) * ufl.inner(ufl.inner(solution_ph * phi_h, solution_ph * phi_h), w0) * dx(2)
         eta_dbc_H1 = h_T * ufl.inner(ufl.inner(ufl.grad(solution_ph * phi_h), ufl.grad(solution_ph * phi_h)), w0) * dx(2)
 
-        eta_dbc = eta_dbc_L2 + eta_dbc_H1
+        eta_dbc = eta_dbc_H1
         eta_dbc_form = dfx.fem.form(eta_dbc)
         eta_dbc_vec = assemble_vector(eta_dbc_form)
         eta_dbc_h = dfx.fem.Function(dg0_space)
