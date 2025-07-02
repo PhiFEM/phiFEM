@@ -1,0 +1,24 @@
+# ============================
+# Star test case
+# ============================
+
+# Mesh parameters
+initial_mesh_size: 0.1
+refinement_method: "adaptive"
+tolerance: 5.e-3
+marking_parameter: 0.3
+bbox:
+- [-4.5, 4.5]
+- [-4.5, 4.5]
+
+# phiFEM parameters
+finite_element_degree: 1
+levelset_degree: 1
+solution_degree: 1
+stabilization_coefficient: 10.0
+box_mode: false
+boundary_detection_degree: 2
+boundary_correction: 'h'
+
+# Reference error computation
+reference_error: false
