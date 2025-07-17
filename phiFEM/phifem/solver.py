@@ -291,9 +291,7 @@ class PhiFEMSolver:
         if self.levelset is None:
             raise ValueError("SOLVER_NAME.levelset is None, did you forget to set the levelset ? (SOLVER_NAME.set_levelset)")
         
-        self.bg_mesh_cells_tags= tag_cells(self.mesh,
-                                           self.levelset,
-                                           self.detection_degree)
+        bg_mesh_cells_tags, facets_tags, _ = compute_tags(self.mesh, self.levelset, self.detection_degree)
 
         working_cells_tags = self.bg_mesh_cells_tags
 
@@ -504,7 +502,8 @@ class PhiFEMSolver:
             # Get the dofs except those on the cut cells
             cut_cells = entities_tags.find(2)
             cut_cells_dofs = dfx.fem.locate_dofs_topological(V_correction, 2, cut_cells)
-            num_dofs_global = V_correction.dofmap.index_map.size_global * V_correction.dofmap.index_map_bs
+            num_dofs_global = V_correction.dofmap.index_map.size_global \
+                              * V_correction.dofmap.index_map_bs
             all_dofs = np.arange(num_dofs_global)
             uncut_cells_dofs = np.setdiff1d(all_dofs, cut_cells_dofs)
 

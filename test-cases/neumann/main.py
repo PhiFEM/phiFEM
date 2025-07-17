@@ -13,7 +13,7 @@ import ufl
 import yaml
 
 # Import phiFEM modules
-from phiFEM.phifem.mesh_scripts import compute_tags, compute_outward_normal, compute_levelset_boundary_error, marking
+from phiFEM.phifem.mesh_scripts import compute_tags, compute_outward_normal, marking
 
 parent_dir = os.path.dirname(__file__)
 
@@ -39,7 +39,7 @@ def save_function(fct, file_name):
     if deg > 1:
         element_family = fct_element.family.name
         mesh = fct.function_space.mesh
-        cg1_element = element(element_family, mesh.topology.cell_name(), 1)
+        cg1_element = element(element_family, mesh.topology.cell_name(), 1, shape=fct.function_space.value_shape)
         cg1_space = dfx.fem.functionspace(mesh, cg1_element)
         cg1_fct = dfx.fem.Function(cg1_space)
         cg1_fct.interpolate(fct)
@@ -56,7 +56,7 @@ test_case_path = os.path.join(parent_dir, test_case)
 if test_case_path not in sys.path:
     sys.path.insert(0, test_case_path)
 
-from data import levelset, source_term, dirichlet
+from data import levelset, source_term
 
 try:
     from data import detection_levelset
@@ -71,6 +71,7 @@ with open(parameters_path, "rb") as f:
 tolerance                 = parameters["tolerance"]
 primal_degree             = parameters["primal_degree"]
 auxiliary_degree          = parameters["auxiliary_degree"]
+vector_degree             = parameters["vector_degree"]
 levelset_degree           = parameters["levelset_degree"]
 bbox                      = parameters["bbox"]
 mesh_size                 = parameters["initial_mesh_size"]
@@ -92,31 +93,43 @@ results = {"dofs":              [],
            "H1 estimator":      [],
            "H1 estimator rate": [0.0],
            "T estimator":       [],
-           "E estimator":       [],
-           "dbc estimator":     []}
+           "E estimator":       []}
 
 if bc_estimator:
-    results["dbc estimator"] = []
+    results["bc estimator"] = []
 
 if reference_error:
-    results["H1 error"] = []
+    results["H1 error"]      = []
     results["H1 error rate"] = [0.0]
 
 results["Solve time"] = []
 
 estimator = np.inf
-for i in range(50):
+for i in range(20):
     # Compute mesh tags
     cells_tags, facets_tags, mesh = compute_tags(mesh, detection_levelset, boundary_detection_degree, box_mode=box_mode)
 
-    primal_element    = element("Lagrange", mesh.topology.cell_name(), primal_degree)
-    auxiliary_element = element("Lagrange", mesh.topology.cell_name(), primal_degree)
-    mixd_element      = mixed_element([primal_element, auxiliary_element])
+    # Defines finite elements
+    cell_name = mesh.topology.cell_name()
+
+    primal_element    = element("Lagrange", cell_name, primal_degree)
+    if auxiliary_degree == 0:
+        auxiliary_element_family = "DG"
+    else:
+        auxiliary_element_family = "Lagrange"
+    auxiliary_element = element(auxiliary_element_family, cell_name, auxiliary_degree)
+    vector_element           = element("Lagrange", cell_name, vector_degree, shape=(mesh.geometry.dim,))
+    mixd_element             = mixed_element([primal_element, vector_element, auxiliary_element])
+
+    levelset_element         = element("Lagrange", cell_name, levelset_degree)
+    dg0_element              = element("DG",       cell_name, 0)
+
     dg0_element       = element("DG", mesh.topology.cell_name(), 0)
     levelset_element  = element("Lagrange", mesh.topology.cell_name(), levelset_degree)
 
     primal_space    = dfx.fem.functionspace(mesh, primal_element)
-    auxiliary_space = dfx.fem.functionspace(mesh, primal_element)
+    auxiliary_space = dfx.fem.functionspace(mesh, auxiliary_element)
+    vector_space    = dfx.fem.functionspace(mesh, vector_element)
     mixed_space     = dfx.fem.functionspace(mesh, mixd_element)
 
     interior_cells = cells_tags.find(1)
@@ -124,7 +137,9 @@ for i in range(50):
     Omega_h_cells  = np.union1d(interior_cells, cut_cells)
     cdim = mesh.topology.dim
     mesh.topology.create_connectivity(cdim, cdim)
-    active_dofs = dfx.fem.locate_dofs_topological(primal_space, cdim, Omega_h_cells)
+    num_active_dofs = len(dfx.fem.locate_dofs_topological(primal_space, cdim, Omega_h_cells))
+    num_active_dofs += len(dfx.fem.locate_dofs_topological(auxiliary_space, cdim, cut_cells))
+    num_active_dofs += len(dfx.fem.locate_dofs_topological(vector_space, cdim, cut_cells))
 
     dg0_space      = dfx.fem.functionspace(mesh, dg0_element)
     levelset_space = dfx.fem.functionspace(mesh, levelset_element)
@@ -134,12 +149,24 @@ for i in range(50):
     phi_h.interpolate(levelset)
     f_h.interpolate(source_term)
 
-    u_D = dfx.fem.Function(auxiliary_space)
-    u_D.interpolate(dirichlet)
+    # Neumann data
+    u_N = dfx.fem.Function(primal_space)
+    try:
+        from data import neumann
+        u_N.interpolate(neumann)
+    except ImportError:
+        from data import exact_solution
+        norm_grad_phi_h = ufl.sqrt(ufl.inner(ufl.grad(phi_h), ufl.grad(phi_h)))
+        grad_phi_h_normalized = ufl.grad(phi_h)/norm_grad_phi_h
 
-    u, p = ufl.TrialFunctions(mixed_space)
-    v, q = ufl.TestFunctions(mixed_space)
-    results["dofs"].append(len(active_dofs))
+        exact_solution_h = dfx.fem.Function(primal_space)
+        exact_solution_h.interpolate(exact_solution)
+
+        u_N = ufl.inner(ufl.grad(exact_solution_h), grad_phi_h_normalized)
+
+    u, y, p = ufl.TrialFunctions(mixed_space)
+    v, z, q = ufl.TestFunctions(mixed_space)
+    results["dofs"].append(num_active_dofs)
 
     phi_h = dfx.fem.Function(levelset_space)
     phi_h.interpolate(levelset)
@@ -173,43 +200,37 @@ for i in range(50):
         Omega_h_cells = np.union1d(interior_cells, cut_cells)
         Omega_h_indicator.x.array[Omega_h_cells] = 1.
 
-        boundary = ufl.inner(2. * ufl.avg(ufl.inner(ufl.grad(u), Omega_h_n) * Omega_h_indicator), 2. * ufl.avg(ufl.inner(v, Omega_h_indicator)))
+        boundary = ufl.inner(2. * ufl.avg(ufl.inner(y, Omega_h_n) * Omega_h_indicator), 2. * ufl.avg(ufl.inner(v, Omega_h_indicator)))
         dBoundary = dS(4)
     else:
-        boundary = ufl.inner(ufl.inner(ufl.grad(u), n), v)
+        boundary = ufl.inner(ufl.inner(y, n), v)
 
     stiffness = ufl.inner(ufl.grad(u), ufl.grad(v)) + ufl.inner(u, v)
 
-    penalization = penalization_coefficient * h_T**(-2) * ufl.inner(u - h_T**(-1) * ufl.inner(phi_h, p), v - h_T**(-1) * ufl.inner(phi_h, q))
+    penalization = penalization_coefficient * \
+                 (ufl.inner(y + ufl.grad(u), z + ufl.grad(v)) \
+                 + ufl.inner(ufl.div(y) + u, ufl.div(z) + v) \
+                 + h_T**(-2) * ufl.inner(ufl.inner(y, ufl.grad(phi_h)) + h_T**(-1) * ufl.inner(p, phi_h), ufl.inner(z, ufl.grad(phi_h)) + h_T**(-1) * ufl.inner(q, phi_h)))
 
-    stabilization_facets = stabilization_coefficient * ufl.avg(h_E) * ufl.inner(ufl.jump(ufl.grad(u), n),
-                                                              ufl.jump(ufl.grad(v), n))
-    stabilization_cells = stabilization_coefficient * h_T**2 * ufl.inner(ufl.div(ufl.grad(u)),
-                                                       ufl.div(ufl.grad(v)))
-
-    dfx.fem.form(stiffness * (dx(1) + dx(2)))
-    dfx.fem.form(boundary * dS(4))
-    dfx.fem.form(penalization * dx(2))
-    dfx.fem.form(stabilization_facets * dS(2))
-    dfx.fem.form(stabilization_cells  * dx(2))
+    stabilization_facets = stabilization_coefficient * ufl.avg(h_E) * \
+                            ufl.inner(ufl.jump(ufl.grad(u), n),
+                                      ufl.jump(ufl.grad(v), n))
 
     # The φ-FEM bilinear form
     a = stiffness              * (dx(1) + dx(2)) \
-        - boundary             * dS(4) \
+        + boundary             * dBoundary \
         + penalization         * dx(2) \
-        + stabilization_facets * dS(2) \
-        + stabilization_cells  * dx(2)
+        + stabilization_facets * dS(2)
 
     rhs = ufl.inner(f_h, v)
-    penalization_rhs = penalization_coefficient * h_T**(-2) * ufl.inner(u_D, v - h_T**(-1)*phi_h*q)
-    stabilization_rhs = stabilization_coefficient * h_T**2 * ufl.inner(f_h, ufl.div(ufl.grad(v)))
+    penalization_rhs = penalization_coefficient * (- h_T**(-2) * ufl.inner(u_N, ufl.sqrt(ufl.inner(ufl.grad(phi_h), ufl.grad(phi_h))) * (ufl.inner(z, ufl.grad(phi_h)) + h_T**(-1) * ufl.inner(q, phi_h))) \
+                       + ufl.inner(f_h, ufl.div(z) + v))
 
     L = rhs                 * (dx(1) + dx(2)) \
-        + penalization_rhs  * dx(2) \
-        - stabilization_rhs * dx(2)
+        + penalization_rhs  * dx(2)
 
     bilinear_form = dfx.fem.form(a)
-    linear_form = dfx.fem.form(L)
+    linear_form   = dfx.fem.form(L)
 
     A = assemble_matrix(bilinear_form)
     b = assemble_vector(linear_form)
@@ -242,11 +263,13 @@ for i in range(50):
     PETSc.Log.view(viewer)
     ksp.destroy()
 
-    solution_uh, solution_ph = solution_wh.split()
+    solution_uh, solution_yh, solution_ph = solution_wh.split()
     solution_uh.collapse()
+    solution_yh.collapse()
     solution_ph.collapse()
 
     save_function(solution_uh, f"uh_{str(i).zfill(2)}")
+    save_function(solution_yh, f"yh_{str(i).zfill(2)}")
     save_function(solution_ph, f"ph_{str(i).zfill(2)}")
 
     """
@@ -291,6 +314,7 @@ for i in range(50):
         eta_dbc_h = dfx.fem.Function(dg0_space)
         eta_dbc_h.x.petsc_vec.setArray(eta_dbc_vec.array[:])
         dbc_est = np.sqrt(eta_dbc_vec.array.sum())
+        results["bc estimator"].append(dbc_est)
         save_function(eta_dbc_h, f"eta_dbc_{str(i).zfill(2)}")
     else:
         dbc_est = 0.
@@ -307,7 +331,7 @@ for i in range(50):
     results["H1 estimator"].append(residual_est)
     results["T estimator"].append(T_est)
     results["E estimator"].append(E_est)
-    results["dbc estimator"].append(dbc_est)
+
     if i>0:
         results["H1 estimator rate"].append((np.log(residual_est) - np.log(results["H1 estimator"][i-1]))/(np.log(results["dofs"][i]) - np.log(results["dofs"][i-1])))
 
