@@ -1,0 +1,16 @@
+# ============================
+# Tilted square test case
+# ============================
+
+# Mesh parameters
+initial_mesh_size: 0.01
+
+# phiFEM parameters
+primal_degree: 1
+auxiliary_degree: 0
+flux_degree: 1
+levelset_degree: 1
+stabilization_coefficient: 1.
+penalization_coefficient: 1.
+box_mode: true
+boundary_detection_degree: 2
