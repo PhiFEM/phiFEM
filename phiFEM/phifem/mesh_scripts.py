@@ -14,6 +14,9 @@ from   ufl               import inner, grad
 
 from   phiFEM.phifem.continuous_functions import Levelset
 
+from dolfinx.io import XDMFFile
+from mpi4py import MPI
+
 PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
@@ -33,15 +36,19 @@ def compute_outward_normal(mesh: Mesh, levelset: Levelset) -> Function:
     W0 = dfx.fem.functionspace(mesh, DG0VecElement)
     try:
         levelset.function_space
-        ext = levelset + ufl.algebra.Abs(levelset)/(2. * levelset)
+        cond = ufl.gt(levelset, 0.)
+        ext = ufl.conditional(cond, 1., 0.)
     except AttributeError:
-        CG1Element = element("Lagrange", mesh.topology.cell_name(), 1)
-        V = dfx.fem.functionspace(mesh, CG1Element)
-        ext = dfx.fem.Function(V)
+        cg1_element = element("Lagrange", mesh.topology.cell_name(), 1)
+        cg1_space = dfx.fem.functionspace(mesh, cg1_element)
+        ext = dfx.fem.Function(cg1_space)
         ext.interpolate(lambda x: levelset(x) > 0.)
 
     # Compute the unit outwards normal, but the scaling might create NaN where grad(ext) = 0
-    normal_Omega_h = grad(ext) / (ufl.sqrt(inner(grad(ext), grad(ext))))
+    norm2_ext = inner(grad(ext), grad(ext))
+    cond_norm = ufl.gt(norm2_ext, 0.)
+    normalization = ufl.conditional(cond_norm, ufl.sqrt(norm2_ext), 1.)
+    normal_Omega_h = grad(ext) / normalization
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
     w0 = dfx.fem.Function(W0)
