@@ -29,12 +29,16 @@ def compute_outward_normal(mesh: Mesh, levelset: Levelset) -> Function:
         w0: the vector field defining the outward normal.
     """
     # This function is used to define the unit outward pointing normal to Gamma_h
-    CG1Element = element("Lagrange", mesh.topology.cell_name(), 1)
-    V = dfx.fem.functionspace(mesh, CG1Element)
     DG0VecElement = element("DG", mesh.topology.cell_name(), 0, shape=(mesh.topology.dim,))
     W0 = dfx.fem.functionspace(mesh, DG0VecElement)
-    ext = dfx.fem.Function(V)
-    ext.interpolate(lambda x: levelset(x) > 0.)
+    try:
+        levelset.function_space
+        ext = levelset + ufl.algebra.Abs(levelset)/(2. * levelset)
+    except AttributeError:
+        CG1Element = element("Lagrange", mesh.topology.cell_name(), 1)
+        V = dfx.fem.functionspace(mesh, CG1Element)
+        ext = dfx.fem.Function(V)
+        ext.interpolate(lambda x: levelset(x) > 0.)
 
     # Compute the unit outwards normal, but the scaling might create NaN where grad(ext) = 0
     normal_Omega_h = grad(ext) / (ufl.sqrt(inner(grad(ext), grad(ext))))
@@ -110,8 +114,8 @@ def _transfer_cells_tags(source_mesh_cells_tags: MeshTags,
     return dest_cells_tags
 
 def _tag_cells(mesh: Mesh,
-              detection_levelset: NDArrayFunction,
-              detection_degree: int) -> MeshTags:
+               detection_levelset: NDArrayFunction|Function,
+               detection_degree: int) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| for each cell.
          detection == 1  => the cell is stricly OUTSIDE {phi_h < 0} => we tag it as 3
          detection == -1 => the cell is stricly INSIDE  {phi_h < 0} => we tag it as 1
