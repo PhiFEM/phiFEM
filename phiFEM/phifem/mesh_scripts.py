@@ -34,21 +34,23 @@ def compute_outward_normal(mesh: Mesh, levelset: Levelset) -> Function:
     # This function is used to define the unit outward pointing normal to Gamma_h
     DG0VecElement = element("DG", mesh.topology.cell_name(), 0, shape=(mesh.topology.dim,))
     W0 = dfx.fem.functionspace(mesh, DG0VecElement)
-    try:
-        levelset.function_space
-        cond = ufl.gt(levelset, 0.)
-        ext = ufl.conditional(cond, 1., 0.)
-    except AttributeError:
-        cg1_element = element("Lagrange", mesh.topology.cell_name(), 1)
-        cg1_space = dfx.fem.functionspace(mesh, cg1_element)
+
+    cg1_element = element("Lagrange", mesh.topology.cell_name(), 1)
+    cg1_space = dfx.fem.functionspace(mesh, cg1_element)
+    if type(levelset) is dfx.fem.Function:
+        cg1_levelset = dfx.fem.Function(cg1_space)
+        cg1_levelset.interpolate(levelset)
+        ext = dfx.fem.Function(cg1_space)
+        ext.x.array[np.where(cg1_levelset.x.array[:] > 0.)] = 1.
+    elif callable(levelset):
         ext = dfx.fem.Function(cg1_space)
         ext.interpolate(lambda x: levelset(x) > 0.)
+    else:
+        raise ValueError("levelset must be of type dfx.fem.Function or callable.")
 
     # Compute the unit outwards normal, but the scaling might create NaN where grad(ext) = 0
-    norm2_ext = inner(grad(ext), grad(ext))
-    cond_norm = ufl.gt(norm2_ext, 0.)
-    normalization = ufl.conditional(cond_norm, ufl.sqrt(norm2_ext), 1.)
-    normal_Omega_h = grad(ext) / normalization
+    norm_grad_ext = ufl.sqrt(inner(grad(ext), grad(ext))) + 1.e-10
+    normal_Omega_h = grad(ext) / norm_grad_ext
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
     w0 = dfx.fem.Function(W0)
