@@ -146,6 +146,8 @@ def solve_primal_problem(i, mesh, spaces, measures, levelset, data_fcts):
     save_function(levelset,          f"levelset_{str(i).zfill(2)}")
     save_function(Omega_h_indicator, f"indicator_{str(i).zfill(2)}")
 
+
+
 if __name__=="__main__":
     parser = argparse.ArgumentParser(prog="Run the demo.",
                                      description="Solve the shape optimization primal problem.")
@@ -236,7 +238,7 @@ if __name__=="__main__":
 
     for i in range(imax):
         # Compute mesh tags
-        cells_tags, facets_tags, mesh = compute_tags(mesh, levelset, boundary_detection_degree, box_mode=True)  
+        cells_tags, facets_tags, _ = compute_tags(mesh, levelset, boundary_detection_degree, box_mode=True)
 
         fig = plt.figure()
         ax = fig.subplots()
