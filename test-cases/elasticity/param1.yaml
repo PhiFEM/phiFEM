@@ -6,8 +6,8 @@
 initial_mesh_size: 0.01
 
 # phiFEM parameters
-primal_degree: 1
-auxiliary_degree: 0
+primal_degree: 2
+auxiliary_degree: 1
 flux_degree: 1
 levelset_degree: 1
 stabilization_coefficient: 1.
