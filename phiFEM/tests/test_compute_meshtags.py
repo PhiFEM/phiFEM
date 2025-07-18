@@ -34,9 +34,9 @@ def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, 
         mesh = fi.read_mesh()
     
     if discrete_levelset_degree > 0:
-        cg1_element = element("Lagrange", mesh.topology.cell_name(), discrete_levelset_degree)
-        cg1_space = dfx.fem.functionspace(mesh, cg1_element)
-        levelset_test = dfx.fem.Function(cg1_space)
+        cg_element = element("Lagrange", mesh.topology.cell_name(), discrete_levelset_degree)
+        cg_space = dfx.fem.functionspace(mesh, cg_element)
+        levelset_test = dfx.fem.Function(cg_space)
         levelset_test.interpolate(levelset)
         # Test computation of cells tags
         cells_tags = _tag_cells(mesh, levelset_test, discrete_levelset_degree)

@@ -1,3 +1,4 @@
+from basix.ufl import element
 import dolfinx as dfx
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
@@ -19,19 +20,26 @@ def rotation(angle, x):
 """
 Dara_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
 """
-data_1 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])))
+data_11 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), -1)
+data_12 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), 1)
+data_13 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), 2)
+data_14 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), 3)
 
 def levelset_2(x):
     def fct(x):
         return np.sum(np.abs(rotation(np.pi/6. - np.pi/4., x)), axis=0)
     return fct(x) - np.sqrt(2.)/2.
 
-data_2 = ("Square", "square", Levelset(levelset_2))
+data_21 = ("Square", "square", Levelset(levelset_2), -1)
+data_22 = ("Square", "square", Levelset(levelset_2), 1)
+data_23 = ("Square", "square", Levelset(levelset_2), 2)
+data_24 = ("Square", "square", Levelset(levelset_2), 3)
 
-testdata = [data_1, data_2]
+testdata = [data_11, data_12, data_13, data_14,
+            data_21, data_22, data_23, data_24]
 
-@pytest.mark.parametrize("data_name, mesh_name, levelset", testdata)
-def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
+@pytest.mark.parametrize("data_name, mesh_name, levelset, discrete_levelset_degree", testdata)
+def test_outward_normal(data_name, mesh_name, levelset, discrete_levelset_degree, save_normal=False):
     mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
 
     if not os.path.isfile(mesh_path):
@@ -49,7 +57,16 @@ def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
 
     cells_tags  = _tag_cells(mesh, levelset, 1)
     facets_tags = _tag_facets(mesh, cells_tags)
-    w0 = compute_outward_normal(mesh, levelset)
+
+    if discrete_levelset_degree > 0:
+        cg_element = element("Lagrange", mesh.topology.cell_name(), discrete_levelset_degree)
+        cg_space = dfx.fem.functionspace(mesh, cg_element)
+        levelset_test = dfx.fem.Function(cg_space)
+        levelset_test.interpolate(levelset)
+    else:
+        levelset_test = levelset
+
+    w0 = compute_outward_normal(mesh, levelset_test)
 
     if save_normal:
         with XDMFFile(mesh.comm, "./normal.xdmf", "w") as of:
@@ -90,7 +107,7 @@ def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
 
         vec_midpoints = facet_midpoint - cell_midpoint
 
-        # Check that the gradient from the levelset is pointing outward of Omega_h        
+        # Check that the gradient from the levelset is pointing outward of Omega_h
         assert np.greater(np.inner(val_normal, vec_midpoints[:-1]), 0.)
 
         # Check that the gradient is normalized
@@ -98,4 +115,4 @@ def test_outward_normal(data_name, mesh_name, levelset, save_normal=False):
         assert np.isclose(norm, 1.), f"||normal|| = {norm}"
 
 if __name__=="__main__":
-    test_outward_normal(*data_2, save_normal=True)
+    test_outward_normal(*data_22, save_normal=True)
