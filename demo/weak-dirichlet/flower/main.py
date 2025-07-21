@@ -1,4 +1,4 @@
-from   basix.ufl import element
+from   basix.ufl import element, mixed_element
 import numpy as np
 import dolfinx as dfx
 from   dolfinx.fem.petsc import assemble_matrix, assemble_vector
@@ -77,6 +77,10 @@ def source_term(x):
         
     return np.where(val <= np.square(r1)/2., 10., 0.)
 
+# Not necessary (added here for the sake of the demo)
+def dirichlet(x):
+    return np.zeros_like(x[0,:])
+
 """
 =========================
  Initial background mesh
@@ -90,21 +94,20 @@ cells_tags, facets_tags, mesh = compute_tags(mesh,
                                              2,
                                              box_mode=True)
 
-# Degree of wh
-fe_degree = 1
+# Degree of uh
+primal_degree = 1
 # Degree of φh
-levelset_degree = 1
-# Degree of uh = wh·φh
-solution_degree = 1
+levelset_degree = 2
 
 cell_name = mesh.topology.cell_name()
-primal_element   = element("Lagrange", cell_name, fe_degree)
-levelset_element = element("Lagrange", cell_name, levelset_degree)
-solution_element = element("Lagrange", cell_name, solution_degree)
+primal_element    = element("Lagrange", cell_name, primal_degree)
+auxiliary_element = element("Lagrange", cell_name, primal_degree)
+levelset_element  = element("Lagrange", cell_name, levelset_degree)
+mxd_element = mixed_element([primal_element, auxiliary_element])
 
-primal_space = dfx.fem.functionspace(mesh, primal_element)
+primal_space   = dfx.fem.functionspace(mesh, primal_element)
 levelset_space = dfx.fem.functionspace(mesh, levelset_element)
-solution_space = dfx.fem.functionspace(mesh, solution_element)
+mixed_space    = dfx.fem.functionspace(mesh, mxd_element)
 
 """
 ===================
@@ -120,10 +123,12 @@ phi_h.interpolate(levelset)
 f_h = dfx.fem.Function(primal_space)
 f_h.interpolate(source_term)
 
-w = ufl.TrialFunction(primal_space)
-phiw = phi_h * w
-v = ufl.TestFunction(primal_space)
-phiv = phi_h * v
+# Dirichlet data (added here for the sake of demo)
+u_D = dfx.fem.Function(primal_space)
+u_D.interpolate(dirichlet)
+
+u, p = ufl.TrialFunctions(mixed_space)
+v, q = ufl.TestFunctions(mixed_space)
 
 dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
 dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
@@ -142,32 +147,35 @@ cut_cells = cells_tags.find(2)
 omega_h_cells = np.union1d(inside_cells, cut_cells)
 omega_h_indicator.x.array[omega_h_cells] = 1.
 
-boundary = ufl.inner(2. * ufl.avg(ufl.inner(ufl.grad(phiw), omega_h_n) \
-        * omega_h_indicator), 2. * ufl.avg(ufl.inner(phiv, omega_h_indicator)))
-    
-stiffness = ufl.inner(ufl.grad(phiw), ufl.grad(phiv))
-facets_stabilization = 10.0 * ufl.avg(h_E) \
-                        * ufl.inner(ufl.jump(ufl.grad(phiw), n),
-                                    ufl.jump(ufl.grad(phiv), n))
-cells_stabilization = 10.0 * h_T**2 \
-                        * ufl.inner(ufl.div(ufl.grad(phiw)),
-                                    ufl.div(ufl.grad(phiv)))
+# Bilinear form
+boundary = ufl.inner(2. * ufl.avg(ufl.inner(ufl.grad(u), omega_h_n) * \
+    omega_h_indicator), 2. * ufl.avg(ufl.inner(v, omega_h_indicator)))
+
+stiffness = ufl.inner(ufl.grad(u), ufl.grad(v))
+
+penalization = 1.0 * h_T**(-2) * ufl.inner(u - h_T**(-1) * ufl.inner(phi_h, p), v - h_T**(-1) * ufl.inner(phi_h, q))
+
+stabilization_facets = 10.0 * ufl.avg(h_E) * ufl.inner(ufl.jump(ufl.grad(u), n),
+                                                       ufl.jump(ufl.grad(v), n))
+stabilization_cells = 10.0 * h_T**2 * ufl.inner(ufl.div(ufl.grad(u)),
+                                                ufl.div(ufl.grad(v)))
 
 a = stiffness              * (dx(1) + dx(2)) \
     - boundary             * dS(4) \
-    + facets_stabilization * dS(2) \
-    + cells_stabilization  * dx(2)
-
-bilinear_form = dfx.fem.form(a)
+    + penalization         * dx(2) \
+    + stabilization_facets * dS(2) \
+    + stabilization_cells  * dx(2)
 
 # Linear form
-rhs = ufl.inner(f_h, phiv)
-rhs_stabilization = 10.0 * h_T**2 \
-                    * ufl.inner(f_h, ufl.div(ufl.grad(phiv)))
+rhs = ufl.inner(f_h, v)
+penalization_rhs = 1.0 * h_T**(-2) * ufl.inner(u_D, v - h_T**(-1)*phi_h*q)
+stabilization_rhs = 10.0 * h_T**2 * ufl.inner(f_h, ufl.div(ufl.grad(v)))
 
 L = rhs                 * (dx(1) + dx(2)) \
-    - rhs_stabilization * dx(2)
+    + penalization_rhs  * dx(2) \
+    - stabilization_rhs * dx(2)
 
+bilinear_form = dfx.fem.form(a)
 linear_form = dfx.fem.form(L)
 
 A = assemble_matrix(bilinear_form)
@@ -196,18 +204,13 @@ pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
  Solve the φ-FEM linear system
 ===============================
 """
-solution_wh = dfx.fem.Function(primal_space)
+solution_wh = dfx.fem.Function(mixed_space)
 ksp.solve(b, solution_wh.x.petsc_vec)
 ksp.destroy()
 
-solution_uh = dfx.fem.Function(solution_space)
-solution_wh_s_space = dfx.fem.Function(solution_space)
-solution_wh_s_space.interpolate(solution_wh)
-phi_h_s_space = dfx.fem.Function(solution_space)
-phi_h_s_space.interpolate(phi_h)
-
-solution_uh.x.array[:] = solution_wh_s_space.x.array[:] \
-                        * phi_h_s_space.x.array[:]
+# Recover the primal solution from the mixed solution
+solution_uh, _ = solution_wh.split()
+solution_uh.collapse()
 
 """
 =================================
