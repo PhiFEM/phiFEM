@@ -174,7 +174,7 @@ for i in range(50):
 
     a = stiffness              * (dx(1) + dx(2)) \
         - boundary             * dBoundary \
-        + facets_stabilization * dS(2) \
+        + facets_stabilization * (dS(2) + dS(3)) \
         + cells_stabilization  * dx(2)
     
     bilinear_form = dfx.fem.form(a)

@@ -197,7 +197,7 @@ for i in range(50):
     a = stiffness              * (dx(1) + dx(2)) \
         - boundary             * dS(4) \
         + penalization         * dx(2) \
-        + stabilization_facets * dS(2) \
+        + stabilization_facets * (dS(2) + dS(3)) \
         + stabilization_cells  * dx(2)
 
     rhs = ufl.inner(f_h, v)

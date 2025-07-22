@@ -220,7 +220,7 @@ for i in range(20):
     a = stiffness              * (dx(1) + dx(2)) \
         + boundary             * dBoundary \
         + penalization         * dx(2) \
-        + stabilization_facets * dS(2)
+        + stabilization_facets * dS(3)
 
     rhs = ufl.inner(f_h, v)
     penalization_rhs = penalization_coefficient * (- h_T**(-2) * ufl.inner(u_N, ufl.sqrt(ufl.inner(ufl.grad(phi_h), ufl.grad(phi_h))) * (ufl.inner(z, ufl.grad(phi_h)) + h_T**(-1) * ufl.inner(q, phi_h))) \
