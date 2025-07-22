@@ -32,3 +32,22 @@ def exact_solution(x):
 # Source term
 def source_term(x):
     return 8. * np.pi**2 * exact_solution(x) + exact_solution(x)
+
+def neumann(x):
+    rx = _rotation(tilt_angle, x)
+
+    def _dx(rx):
+        return - 2. * np.pi * np.sin(2. * np.pi * rx[0,:]) * \
+                              np.cos(2. * np.pi * rx[1,:])
+    def _dy(rx):
+        return - 2. * np.pi * np.cos(2. * np.pi * rx[0,:]) * \
+                              np.sin(2. * np.pi * rx[1,:])
+
+    vals = -_dy(rx)
+    mask = np.where(np.abs(rx[1,:]) < rx[0,: ])[0]
+    vals[mask] = _dx(rx[:,mask])
+    mask = np.where(np.abs(rx[0,:]) < rx[1,:])[0]
+    vals[mask] = _dy(rx[:, mask])
+    mask = np.where(np.abs(rx[1,:]) < -rx[0,: ])[0]
+    vals[mask] = -_dx(rx[:, mask])
+    return vals
