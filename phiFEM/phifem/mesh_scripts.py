@@ -165,6 +165,15 @@ def _tag_cells(mesh: Mesh,
             y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
             points = np.vstack([x_coords, y_coords])
             quadrature_points = points[:,points[1,:] <= np.ones_like(points[0,:])-points[0,:]]
+            quadrature_weights = np.ones_like(quadrature_points[0,:])
+            custom_rule = {"quadrature_rule":    "custom",
+                        "quadrature_points":  quadrature_points.T,
+                        "quadrature_weights": quadrature_weights}
+            
+            cells_detection_dx = ufl.Measure("dx",
+                                            domain=mesh,
+                                            subdomain_data=detection_measure_subdomain,
+                                            metadata=custom_rule)  
         elif mesh.topology.cell_name() == "tetrahedron":
             xs = np.linspace(0., 1., degree + 1)
             xx, yy, zz = np.meshgrid(xs, xs, xs)
@@ -173,18 +182,19 @@ def _tag_cells(mesh: Mesh,
             z_coords = zz.reshape((1, zz.shape[0] * zz.shape[1]))
             points = np.vstack([x_coords, y_coords, z_coords])
             quadrature_points = points[:,points[2,:] <= np.ones_like(points[0,:])-points[0,:]-points[1,:]]
+            quadrature_weights = np.ones_like(quadrature_points[0,:])
+            custom_rule = {"quadrature_rule":    "custom",
+                        "quadrature_points":  quadrature_points.T,
+                        "quadrature_weights": quadrature_weights}
+            
+            cells_detection_dx = ufl.Measure("dx",
+                                            domain=mesh,
+                                            subdomain_data=detection_measure_subdomain,
+                                            metadata=custom_rule)  
         else:
-            raise NotImplementedError("Mesh cell type not supported. Only supported types are: triangle, tetrahedron.")
-
-        quadrature_weights = np.ones_like(quadrature_points[0,:])
-        custom_rule = {"quadrature_rule":    "custom",
-                       "quadrature_points":  quadrature_points.T,
-                       "quadrature_weights": quadrature_weights}
-        
-        cells_detection_dx = ufl.Measure("dx",
-                                        domain=mesh,
-                                        subdomain_data=detection_measure_subdomain,
-                                        metadata=custom_rule)
+            cells_detection_dx = ufl.Measure("dx",
+                                             domain=mesh,
+                                             subdomain_data=detection_measure_subdomain)
         
         detection_element = element("Lagrange", mesh.topology.cell_name(), degree)
         detection_space = dfx.fem.functionspace(mesh, detection_element)

@@ -73,7 +73,8 @@ def neumann(x):
 =========================
 """
 bbox = [[-1., -1.], [1., 1.]]
-mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200])
+cell_type = dfx.cpp.mesh.CellType(-4)
+mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200], cell_type)
 
 cells_tags, facets_tags, mesh = compute_tags(mesh,
                                              detection_levelset,
@@ -128,7 +129,6 @@ dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
 dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 
 h_T = ufl.CellDiameter(mesh)
-h_E = ufl.FacetArea(mesh)
 n   = ufl.FacetNormal(mesh)
 
 # In box_mode (see l93), the boundary term needs a special treatment
@@ -151,8 +151,7 @@ penalization = 1.0 * (ufl.inner(y + ufl.grad(u), z + ufl.grad(v)) \
                  + ufl.inner(ufl.div(y) + u, ufl.div(z) + v) \
                  + h_T**(-2) * ufl.inner(ufl.inner(y, ufl.grad(phi_h)) + h_T**(-1) * ufl.inner(p, phi_h), ufl.inner(z, ufl.grad(phi_h)) + h_T**(-1) * ufl.inner(q, phi_h)))
 
-
-stabilization_facets = 10.0 * ufl.avg(h_E) * \
+stabilization_facets = 10.0 * ufl.avg(h_T) * \
                         ufl.inner(ufl.jump(ufl.grad(u), n),
                                   ufl.jump(ufl.grad(v), n))
 
