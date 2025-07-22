@@ -50,9 +50,9 @@ def plot_mesh_tags(
     # Get unique tags and create a custom colormap
     tab10 = cm.get_cmap("tab10")
     colors = [tab10(i / 10.) for i in range(10)]
-    colors = colors[:5]
+    colors = colors[:6]
     cmap = mcolors.ListedColormap(colors) # type: ignore
-    norm = mcolors.BoundaryNorm(np.arange(6) - 0.5, 5)
+    norm = mcolors.BoundaryNorm(np.arange(7) - 0.5, 6)
 
     assert mesh_tags.dim in (mesh.topology.dim, mesh.topology.dim - 1)
     cells_map = mesh.topology.index_map(mesh.topology.dim)
@@ -88,7 +88,8 @@ def plot_mesh_tags(
                     1: "Interior cells",
                     2: "Cut cells",
                     3: "Exterior cells",
-                    4: "Padding cells"}
+                    4: "Padding cells",
+                    5: ""}
     elif mesh_tags.dim == mesh.topology.dim - 1:
         tdim = mesh.topology.dim
         connectivity_cells_to_facets = mesh.topology.connectivity(tdim, tdim - 1)
@@ -129,11 +130,12 @@ def plot_mesh_tags(
         tag_dict = {0: "No tag",
                     1: "Interior facets",
                     2: "Cut facets",
-                    3: "Exterior facets",
-                    4: "Gamma_h"}
+                    3: "Interior boundary facets",
+                    4: "Gamma_h",
+                    5: "Exterior facets"}
     divider = make_axes_locatable(ax)
     cax = divider.append_axes("right", size="5%", pad=0.05)
-    colorbar = plt.colorbar(mappable, cax=cax, boundaries=np.arange(5) - 0.5, ticks=np.arange(5))
+    colorbar = plt.colorbar(mappable, cax=cax, boundaries=np.arange(7) - 0.5, ticks=np.arange(6))
     
     # Set colorbar labels
     colorbar.set_ticklabels([f"{tag_dict[key]} ({key})" for key in tag_dict.keys()])
