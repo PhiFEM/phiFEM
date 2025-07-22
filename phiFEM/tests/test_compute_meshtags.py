@@ -103,21 +103,18 @@ if __name__=="__main__":
     def expression_levelset(x):
         return x[0, :]**2 + x[1, :]**2 - 0.125
 
-    levelset = Levelset(expression_levelset)
 
     k = 4
     CGElement = element("Lagrange", mesh.topology.cell_name(), k)
     V = dfx.fem.functionspace(mesh, CGElement)
     discrete_levelset = dfx.fem.Function(V)
-    discrete_levelset.interpolate(levelset.expression)
+    discrete_levelset.interpolate(expression_levelset)
 
     cells_tags = _tag_cells(mesh,
                             discrete_levelset,
-                            plot=False)
+                            2)
 
     facets_tags = _tag_facets(mesh,
-                              discrete_levelset,
-                              cells_tags,
-                              plot=True)
+                              cells_tags)
 
-    test_compute_meshtags("0", "disk", levelset, "celltags_1", "facettags_1", save_as_benchmark=False)
+    test_compute_meshtags("0", "disk", expression_levelset, "celltags_1", "facettags_1", 2, save_as_benchmark=False)
