@@ -291,8 +291,9 @@ def _tag_facets(mesh: Mesh,
     boundary_facets = np.union1d(exterior_boundary_facets, real_boundary_facets)
 
     # Cut facets F_h^Γ
+    facets_to_remove = np.union1d(np.union1d(exterior_boundary_facets, boundary_facets), interior_boundary_facets)
     cut_facets = np.setdiff1d(c2f_map[cut_cells],
-                              np.union1d(exterior_boundary_facets, boundary_facets))
+                              facets_to_remove)
 
     # Interior facets 
     interior_facets = np.setdiff1d(c2f_map[interior_cells],
@@ -311,14 +312,17 @@ def _tag_facets(mesh: Mesh,
     # Create the meshtags from the indices.
     indices = np.hstack([exterior_facets,
                          interior_facets,
+                         interior_boundary_facets,
                          cut_facets,
                          boundary_facets]).astype(np.int32)
-    interior_marker = np.full_like(interior_facets, 1).astype(np.int32)
-    cut_marker      = np.full_like(cut_facets,      2).astype(np.int32)
-    exterior_marker = np.full_like(exterior_facets, 3).astype(np.int32)
-    boundary_marker = np.full_like(boundary_facets, 4).astype(np.int32)
+    interior_marker          = np.full_like(interior_facets, 1).astype(np.int32)
+    cut_marker               = np.full_like(cut_facets,      2).astype(np.int32)
+    interior_boundary_marker = np.full_like(interior_boundary_facets, 3).astype(np.int32)
+    boundary_marker          = np.full_like(boundary_facets, 4).astype(np.int32)
+    exterior_marker          = np.full_like(exterior_facets, 5).astype(np.int32)
     markers = np.hstack([exterior_marker,
                          interior_marker,
+                         interior_boundary_marker,
                          cut_marker,
                          boundary_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
