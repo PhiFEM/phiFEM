@@ -15,7 +15,7 @@ bbox:
 primal_degree: 1
 auxiliary_degree: 0
 vector_degree: 1
-levelset_degree: 1
+levelset_degree: 2
 stabilization_coefficient: 1.
 penalization_coefficient: 1.
 box_mode: false

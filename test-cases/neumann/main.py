@@ -260,28 +260,18 @@ for i in range(20):
     # Monitor PETSc solve time
     viewer = PETSc.Viewer().createASCII(os.path.join(output_dir, "petsc_log.txt"))
     PETSc.Log.begin()
-    print("Solve")
     ksp.solve(b, solution_wh.x.petsc_vec)
     PETSc.Log.view(viewer)
     ksp.destroy()
 
-    print("Split")
-    solution_uh, solution_yh, solution_ph = solution_wh.split()
+    solution_uh, _, solution_ph = solution_wh.split()
     solution_uh.collapse()
-    solution_yh.collapse()
-    solution_ph.collapse()
 
-    print("Save uh")
     save_function(solution_uh, f"uh_{str(i).zfill(2)}")
-    print("Save yh")
-    save_function(solution_yh, f"yh_{str(i).zfill(2)}")
-    print("Save ph")
-    save_function(solution_ph, f"ph_{str(i).zfill(2)}")
 
     """
     A posteriori error estimation
     """
-    print("Estimate")
     r = f_h + ufl.div(ufl.grad(solution_uh)) - solution_uh
     J_h = ufl.jump(ufl.grad(solution_uh), n)
 
@@ -343,7 +333,6 @@ for i in range(20):
         results["H1 estimator rate"].append((np.log(residual_est) - np.log(results["H1 estimator"][i-1]))/(np.log(results["dofs"][i]) - np.log(results["dofs"][i-1])))
 
     if reference_error:
-        print("Ref error")
         try:
             from data import exact_solution
         except ImportError:
