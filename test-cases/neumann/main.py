@@ -43,12 +43,13 @@ def save_function(fct, file_name):
         cg1_space = dfx.fem.functionspace(mesh, cg1_element)
         cg1_fct = dfx.fem.Function(cg1_space)
         cg1_fct.interpolate(fct)
+        with XDMFFile(mesh.comm, os.path.join(output_dir, "functions", file_name + ".xdmf"), "w") as of:
+            of.write_mesh(mesh)
+            of.write_function(cg1_fct)
     else:
-        cg1_fct = fct
-
-    with XDMFFile(mesh.comm, os.path.join(output_dir, "functions", file_name + ".xdmf"), "w") as of:
-        of.write_mesh(mesh)
-        of.write_function(cg1_fct)
+        with XDMFFile(mesh.comm, os.path.join(output_dir, "functions", file_name + ".xdmf"), "w") as of:
+            of.write_mesh(mesh)
+            of.write_function(fct)
 
 # Import data functions (levelset, source term...)
 test_case = parameters.split(sep="/")[0]
@@ -134,10 +135,10 @@ for i in range(20):
 
     interior_cells = cells_tags.find(1)
     cut_cells      = cells_tags.find(2)
-    Omega_h_cells  = np.union1d(interior_cells, cut_cells)
+    omega_h_cells  = np.union1d(interior_cells, cut_cells)
     cdim = mesh.topology.dim
     mesh.topology.create_connectivity(cdim, cdim)
-    num_active_dofs = len(dfx.fem.locate_dofs_topological(primal_space, cdim, Omega_h_cells))
+    num_active_dofs = len(dfx.fem.locate_dofs_topological(primal_space, cdim, omega_h_cells))
     num_active_dofs += len(dfx.fem.locate_dofs_topological(auxiliary_space, cdim, cut_cells))
     num_active_dofs += len(dfx.fem.locate_dofs_topological(vector_space, cdim, cut_cells))
 
@@ -189,18 +190,18 @@ for i in range(20):
     """
     φ-FEM formulation
     """
-    Omega_h_indicator = 1.
+    omega_h_indicator = 1.
     # If box mode is used, the unit outward pointing normal to Omega_h has to be computed on internal edges
     if box_mode:
-        Omega_h_n = compute_outward_normal(mesh, levelset)
-        Omega_h_indicator = dfx.fem.Function(dg0_space)
-        Omega_h_indicator.x.petsc_vec.set(0.)
+        omega_h_n = compute_outward_normal(mesh, levelset)
+        omega_h_indicator = dfx.fem.Function(dg0_space)
+        omega_h_indicator.x.petsc_vec.set(0.)
         interior_cells = cells_tags.find(1)
         cut_cells      = cells_tags.find(2)
-        Omega_h_cells = np.union1d(interior_cells, cut_cells)
-        Omega_h_indicator.x.array[Omega_h_cells] = 1.
+        omega_h_cells = np.union1d(interior_cells, cut_cells)
+        omega_h_indicator.x.array[omega_h_cells] = 1.
 
-        boundary = ufl.inner(2. * ufl.avg(ufl.inner(y, Omega_h_n) * Omega_h_indicator), 2. * ufl.avg(ufl.inner(v, Omega_h_indicator)))
+        boundary = ufl.inner(2. * ufl.avg(ufl.inner(y, omega_h_n) * omega_h_indicator), 2. * ufl.avg(ufl.inner(v, omega_h_indicator)))
         dBoundary = dS(4)
     else:
         boundary = ufl.inner(ufl.inner(y, n), v)
@@ -259,22 +260,28 @@ for i in range(20):
     # Monitor PETSc solve time
     viewer = PETSc.Viewer().createASCII(os.path.join(output_dir, "petsc_log.txt"))
     PETSc.Log.begin()
+    print("Solve")
     ksp.solve(b, solution_wh.x.petsc_vec)
     PETSc.Log.view(viewer)
     ksp.destroy()
 
+    print("Split")
     solution_uh, solution_yh, solution_ph = solution_wh.split()
     solution_uh.collapse()
     solution_yh.collapse()
     solution_ph.collapse()
 
+    print("Save uh")
     save_function(solution_uh, f"uh_{str(i).zfill(2)}")
+    print("Save yh")
     save_function(solution_yh, f"yh_{str(i).zfill(2)}")
+    print("Save ph")
     save_function(solution_ph, f"ph_{str(i).zfill(2)}")
 
     """
     A posteriori error estimation
     """
+    print("Estimate")
     r = f_h + ufl.div(ufl.grad(solution_uh)) - solution_uh
     J_h = ufl.jump(ufl.grad(solution_uh), n)
 
@@ -292,7 +299,7 @@ for i in range(20):
 
     # Facets residual (must use a restriction in box mode to avoid averaging both sides of the boundary of Omega_h)
     if box_mode:
-        eta_E = ufl.avg(h_E) * ufl.inner(ufl.inner(J_h, J_h), ufl.avg(w0)) * ufl.avg(Omega_h_indicator) * (dS(1) + dS(2))
+        eta_E = ufl.avg(h_E) * ufl.inner(ufl.inner(J_h, J_h), ufl.avg(w0)) * ufl.avg(omega_h_indicator) * (dS(1) + dS(2))
     else:
         eta_E = ufl.avg(h_E) * ufl.inner(ufl.inner(J_h, J_h), ufl.avg(w0)) * (dS(1) + dS(2))
     eta_E_form = dfx.fem.form(eta_E)
@@ -336,6 +343,7 @@ for i in range(20):
         results["H1 estimator rate"].append((np.log(residual_est) - np.log(results["H1 estimator"][i-1]))/(np.log(results["dofs"][i]) - np.log(results["dofs"][i-1])))
 
     if reference_error:
+        print("Ref error")
         try:
             from data import exact_solution
         except ImportError:
