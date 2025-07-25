@@ -5,7 +5,7 @@
 # Mesh parameters
 initial_mesh_size: 0.1
 refinement_method: "adaptive"
-tolerance: 3.e-2
+tolerance: 15.
 marking_parameter: 0.3
 bbox:
 - [-1.5, 1.5]

@@ -1,7 +1,7 @@
 import numpy as np
 
 shift = np.array([0., np.pi/32.])
-angle = 39. * np.pi/40.
+angle = 99. * np.pi/100.
 coef = np.pi/angle/2.
 
 # Levelset taken from 1st test case in: https://onlinelibrary.wiley.com/doi/abs/10.1002/num.22878

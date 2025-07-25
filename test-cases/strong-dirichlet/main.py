@@ -96,6 +96,11 @@ if reference_error:
     results["H10 error"] = []
     results["H10 error rate"] = [0.0]
 
+residuals = {"dofs": [],
+             "T":    [],
+             "E":    [],
+             "G":    []}
+
 estimator = np.inf
 for i in range(50):
     # Compute mesh tags
@@ -119,6 +124,7 @@ for i in range(50):
     mesh.topology.create_connectivity(cdim, cdim)
     active_dofs = dfx.fem.locate_dofs_topological(primal_space, cdim, Omega_h_cells)
     results["dofs"].append(len(active_dofs))
+    residuals["dofs"].append(len(active_dofs))
 
     phi_h = dfx.fem.Function(levelset_space)
     phi_h.interpolate(levelset)
@@ -267,6 +273,8 @@ for i in range(50):
     eta_T_h = dfx.fem.Function(dg0_space)
     eta_T_h.x.petsc_vec.setArray(eta_T_vec.array[:])
 
+    residuals["T"].append(np.sqrt(eta_T_vec.array[:].sum()))
+
     save_function(eta_T_h, f"eta_T_{str(i).zfill(2)}")
 
     # Facets residual (must use a restriction in box mode to avoid averaging both sides of the boundary of Omega_h)
@@ -279,6 +287,8 @@ for i in range(50):
     eta_E_h = dfx.fem.Function(dg0_space)
     eta_E_h.x.petsc_vec.setArray(eta_E_vec.array[:])
 
+    residuals["E"].append(np.sqrt(eta_E_vec.array[:].sum()))
+
     save_function(eta_E_h, f"eta_E_{str(i).zfill(2)}")
     
     # Geometry residual (0 if boundary_correction is None)
@@ -290,6 +300,10 @@ for i in range(50):
         eta_G_h = dfx.fem.Function(dg0_space)
         eta_G_h.x.petsc_vec.setArray(eta_G_vec.array[:])
         save_function(eta_G_h, f"eta_G_{str(i).zfill(2)}")
+        
+        residuals["G"].append(np.sqrt(eta_G_vec.array[:].sum()))
+    else:
+        residuals["G"].append(0.)
 
     eta = eta_T + eta_E + eta_geometry
     eta_form = dfx.fem.form(eta)
@@ -374,6 +388,8 @@ for i in range(50):
     df = pl.DataFrame(results)
     print(df)
     df.write_csv(os.path.join(output_dir, "results.csv"))
+    df_res = pl.DataFrame(residuals)
+    df_res.write_csv(os.path.join(output_dir, "residuals.csv"))
 
     if residual_est < tolerance:
         break
