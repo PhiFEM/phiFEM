@@ -15,7 +15,9 @@ This repository aims at providing an implementation of the $\varphi$-FEM in the 
 
 The docker image is based on the stable dolfinx image (see [FEniCSx](https://fenicsproject.org/)).
 
-## Build the image (from the root directory):
+## Usage
+
+### Build the image (from the root directory):
 Replace `YOUR_ENGINE_HERE` by `docker`, `podman` or your favorite container engine (the following instructions use Docker/podman UI).
 ```bash
 export CONTAINER_ENGINE="YOUR_ENGINE_HERE"
@@ -23,12 +25,12 @@ cd docker/
 bash build_image.sh
 ```
 
-## Launch the image (from the root directory):
+### Launch the image (from the root directory):
 ```bash
 bash run_image.sh
 ```
 
-## Run an example (inside the container from the root directory):
+### Run an example (inside the container from the root directory):
 ```bash
 cd demo/weak-dirichlet/flower
 ```
@@ -47,6 +49,6 @@ You should have received a copy of the GNU Lesser General Public License along w
 
 ## Authors (alphabetical)
 
-Raphaël Bulle ([https://rbulle.io](https://rbulle.github.io/))
-Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))
-Killian Vuillemot
+Raphaël Bulle ([https://rbulle.io](https://rbulle.github.io/))  
+Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))  
+Killian Vuillemot  
