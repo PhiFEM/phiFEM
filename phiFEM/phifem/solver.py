@@ -15,7 +15,7 @@ import ufl # type: ignore[import-untyped]
 from   ufl import inner, jump, grad, div, avg
 from   ufl.classes import Measure # type: ignore[import-untyped]
 
-from phiFEM.phifem.compute_meshtags import tag_cells, tag_facets
+from phiFEM.phifem.mesh_scripts import compute_tags
 from phiFEM.phifem.continuous_functions import ContinuousFunction, Levelset
 from phiFEM.phifem.mesh_scripts import compute_outward_normal
 
@@ -120,7 +120,7 @@ class PhiFEMSolver:
 
         levelset_degree = self.levelset_element.basix_element.degree
         print(f"Solver: phiFEM. Refinement: {self.ref_strat}. FE degree: {FE_degree}. Levelset degree: {levelset_degree}. Use fine space: {str(self.use_fine_space)}. Iteration n° {str(self.i).zfill(2)}. {str2print}")
-    
+
     def solve(self) -> None:
         """ Solve the phiFEM linear system."""
         self.print("Solve linear system.")
@@ -308,26 +308,8 @@ class PhiFEMSolver:
             working_cells_tags = self.bg_mesh_cells_tags
             working_mesh = self.mesh
         else:
-            omega_h_cells = np.unique(np.hstack([self.bg_mesh_cells_tags.find(1),
-                                                 self.bg_mesh_cells_tags.find(2),
-                                                 self.bg_mesh_cells_tags.find(4)]))
-            self.submesh, c_map, v_map, n_map = dfx.mesh.create_submesh(self.mesh,
-                                                                        self.mesh.topology.dim,
-                                                                        omega_h_cells) # type: ignore
-
-            if self.submesh is None:
-                raise TypeError("SOLVER_NAME.submesh is None.")
-
-            self._transfer_cells_tags(c_map)
-            if self.submesh_cells_tags is None:
-                raise TypeError("SOLVER_NAME.submesh_cells_tags is None.")
-
-            working_cells_tags = self.submesh_cells_tags
-            working_mesh = self.submesh
-
-        self.facets_tags = tag_facets(working_mesh,
-                                      working_cells_tags)
-    
+            self.submesh_cells_tags = cells_tags
+        
     def set_variational_formulation(self,
                                     sigma: float = 1.,
                                     quadrature_degree: int | None = None) -> Tuple[Function | None, Measure, Measure, int]:
@@ -410,7 +392,7 @@ class PhiFEMSolver:
             DG0Element = element("DG", working_mesh.topology.cell_name(), 0)
             V0 = dfx.fem.functionspace(working_mesh, DG0Element)
             v0 = dfx.fem.Function(V0)
-            v0.x.set(0.)
+            v0.x.petsc_vec.set(0.)
 
             # We do not need the dofs here since cells and DG0 dofs share the same indices in dolfinx
             v0.x.array[Omega_h_cells] = 1.
@@ -445,7 +427,7 @@ class PhiFEMSolver:
         
         if self.box_mode:
             # Useless term so that PETSc doesn't throw a Segfault at my face
-            a += inner(w, v) * v0 * (dx(3) + dx(4))
+            a += inner(w, v) * v0 * dx(3)
 
             # In box_mode we turn all the exterior dofs to zero by setting a dummy zero Dirichlet BC on them
             if self.facets_tags is None:

@@ -4,7 +4,7 @@ from dolfinx.io import XDMFFile
 from mpi4py import MPI
 import numpy as np
 import pytest
-from phiFEM.phifem.compute_meshtags import tag_cells, tag_facets
+from phiFEM.phifem.mesh_scripts import _tag_cells, _tag_facets
 from phiFEM.phifem.continuous_functions import Levelset
 import os
 from test_outward_normal import create_disk # type: ignore
@@ -13,14 +13,17 @@ from test_outward_normal import create_disk # type: ignore
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
 """
-data_1 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1")
+data_1 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", -1)
+data_2 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", 1)
+data_3 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", 2)
+data_4 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", 3)
 
-testdata = [data_1]
+testdata = [data_1, data_2, data_3, data_4]
 
 parent_dir = os.path.dirname(__file__)
 
-@pytest.mark.parametrize("data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name", testdata)
-def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, save_as_benchmark=False):
+@pytest.mark.parametrize("data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree", testdata)
+def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree, save_as_benchmark=False):
     mesh_path = os.path.join(parent_dir, "tests_data", "disk" + ".xdmf")
 
     if not os.path.isfile(mesh_path):
@@ -30,10 +33,20 @@ def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, 
     with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", "disk.xdmf"), "r") as fi:
         mesh = fi.read_mesh()
     
-    # Test computation of cells tags
-    cells_tags = tag_cells(mesh, levelset, 1)
+    if discrete_levelset_degree > 0:
+        cg_element = element("Lagrange", mesh.topology.cell_name(), discrete_levelset_degree)
+        cg_space = dfx.fem.functionspace(mesh, cg_element)
+        levelset_test = dfx.fem.Function(cg_space)
+        levelset_test.interpolate(levelset)
+        # Test computation of cells tags
+        cells_tags = _tag_cells(mesh, levelset_test, discrete_levelset_degree)
+    else:
+        levelset_test = levelset
+        # Test computation of cells tags
+        cells_tags = _tag_cells(mesh, levelset_test, 1)
+
     # Test computation of facets tags when cells tags are provided
-    facets_tags = tag_facets(mesh, cells_tags)
+    facets_tags = _tag_facets(mesh, cells_tags)
 
     # To save benchmark
     if save_as_benchmark:
@@ -90,21 +103,18 @@ if __name__=="__main__":
     def expression_levelset(x):
         return x[0, :]**2 + x[1, :]**2 - 0.125
 
-    levelset = Levelset(expression_levelset)
 
     k = 4
     CGElement = element("Lagrange", mesh.topology.cell_name(), k)
     V = dfx.fem.functionspace(mesh, CGElement)
     discrete_levelset = dfx.fem.Function(V)
-    discrete_levelset.interpolate(levelset.expression)
+    discrete_levelset.interpolate(expression_levelset)
 
-    cells_tags = tag_cells(mesh,
-                           discrete_levelset,
-                           plot=False)
+    cells_tags = _tag_cells(mesh,
+                            discrete_levelset,
+                            2)
 
-    facets_tags = tag_facets(mesh,
-                             discrete_levelset,
-                             cells_tags,
-                             plot=True)
+    facets_tags = _tag_facets(mesh,
+                              cells_tags)
 
-    test_compute_meshtags("0", "disk", levelset, "celltags_1", "facettags_1", save_as_benchmark=False)
+    test_compute_meshtags("0", "disk", expression_levelset, "celltags_1", "facettags_1", 2, save_as_benchmark=False)
