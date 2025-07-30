@@ -12,21 +12,16 @@ from   typing            import Any, Tuple
 import ufl # type: ignore
 from   ufl               import inner, grad
 
-from   phiFEM.phifem.continuous_functions import Levelset
-
-from dolfinx.io import XDMFFile
-from mpi4py import MPI
-
 PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
-def compute_outward_normal(mesh: Mesh, levelset: Levelset) -> Function:
+def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
     """ Compute the outward normal to Omega_h.
 
     Args:
         mesh: the mesh on which the levelset is discretized.
-        levelset: the levelset defining Omega_h.
+        levelset: the levelset expression defining Omega_h.
     
     Returns:
         w0: the vector field defining the outward normal.
@@ -265,8 +260,9 @@ def _tag_facets(mesh: Mesh,
     """Tag the mesh facets.
     Strictly interior facets  => tag it 1
     Cut facets                => tag it 2
-    Strictly exterior facets  => tag it 3
+    Interior boundary facets  => tag it 3
     Boundary facets (Gamma_h) => tag it 4
+    Strictly exterior facets  => tag it 5
 
     Args:
         mesh: the background mesh.
