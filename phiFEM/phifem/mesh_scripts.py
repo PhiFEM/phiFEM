@@ -260,8 +260,9 @@ def _tag_facets(mesh: Mesh,
     """Tag the mesh facets.
     Strictly interior facets  => tag it 1
     Cut facets                => tag it 2
-    Strictly exterior facets  => tag it 3
+    Interior boundary facets  => tag it 3
     Boundary facets (Gamma_h) => tag it 4
+    Strictly exterior facets  => tag it 5
 
     Args:
         mesh: the background mesh.
