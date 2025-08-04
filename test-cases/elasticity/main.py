@@ -45,7 +45,7 @@ def epsilon(u):
     return ufl.sym(ufl.grad(u))
 
 def sigma(u):
-    return ufl.nabla_div(u)*ufl.Identity(len(u)) + 2.0 * mu * epsilon(u)
+    return lmbda * ufl.nabla_div(u)*ufl.Identity(len(u)) + 2.0 * mu * epsilon(u)
 
 def solve_primal_problem(i, mesh, spaces, measures, levelset, data_fcts):
     mixed_space, dg0_space = spaces
