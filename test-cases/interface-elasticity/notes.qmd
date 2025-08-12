@@ -1,0 +1,59 @@
+---
+title: "$\\varphi$-FEM toy example: product of cosines."
+from: markdown+emoji
+format:
+  html:
+    number-sections: true
+    toc: true
+    toc-location: left
+    theme:
+      light: flatly
+      dark: darkly
+    html-math-method: mathjax
+---
+
+## Domain settings
+
+Let $\Omega$ be the unit square $(0, 1)^2$ partitioned into $\Omega_{\mathrm{in}}$ and $\Omega_{\mathrm{out}}$ such that $\Omega_{\mathrm{in}}$ is the open disk centered in $(0.5, 0.5)$ and of radius $0.3$ and $\Omega_{\mathrm{out}} = \Omega \setminus \overline{\Omega_{\mathrm{in}}}$. 
+
+Especially, $\Omega_{\mathrm{in}}$ is also defined by a levelset function $\varphi$ such that
+$$
+  \Omega_{\mathrm{in}} = \{\varphi < 0\},
+$$
+where
+$$
+  \varphi(x,y) = (x - 0.5)^2 + (y - 0.5)^2 - 0.3^2.
+$$
+
+We denote $\Gamma = \partial \Omega_{\mathrm{in}} = \{\varphi = 0\}$, the interface between $\Omega_{\mathrm{in}}$ and $\Omega_{\mathrm{out}}$ and $\Gamma_D = \{(0,y) \in \overline \Omega_{\mathrm{out}}\} \bigcup \{(1,y) \in \overline \Omega_{\mathrm{out}}\}$ the Dirichlet boundary.
+
+## Discretization
+
+Let $\mathcal T_h$ be a quadrilateral mesh on $\Omega$ and $V_h^{\varphi}$ a scalar Lagrange finite element space or degree 1 on $\mathcal T_h$.
+Given $\varphi_h$, the Lagrange interpolation of $\varphi$ in $V_h^{\varphi}$, we denote $\Omega_h^{\Gamma}$ the set of cells intersecting $\{\varphi_h = 0\}$, $\Omega_h^{\mathrm{in}}$ and $\Omega_h^{\mathrm{out}}$ the sets of cells *strictly inside* $\{\varphi < 0\}$ and $\{\varphi > 0\}$ respectively and $\mathcal F_h^{\bullet}$ the set of edges shared by a cell from $\Omega_h^{\Gamma}$ and $\Omega_h^{\bullet}$ for $\bullet \in \{\mathrm{in}, \mathrm{out}\}$.
+
+## Interface elasticity problem
+
+We consider the following interface linear elasticity problem on $\Omega$: find a function $u$
+
+We consider the following Poisson problem on $\Omega$, find a function $u$ of sufficient regularity such that
+$$
+  -\Delta u + u = f\quad \text{in } \Omega,\qquad \mathrm{BC}(u) = 0\quad \text{on } \Gamma,
+$${#eq-poisson}
+where $\mathrm{BC}$ is a function representing different boundary conditions of interest.
+
+In the following, $f$ and $\mathrm{BC}$ are always chosen so that the solution to @eq-poisson reads
+$$
+  u_{\mathrm{exact}}(x,y) = \cos(2 \pi r_x(x,y)) \cos(2 \pi r_y(x,y)).
+$$
+
+## Discretization
+
+We discretize @eq-poisson using $\varphi$-FEM.
+To do so, we introduce a bounding box $\mathcal O$ such that $\Omega \subset \mathcal O$ and a mesh $\mathcal T_h$ on $\mathcal O$.
+We denote $\Omega_h$ and $\Omega_h^{\Gamma}$ the union of cells in $\mathcal T_h$ with a non-empty intersection with $\Omega$ and $\Gamma$ respectively.
+We denote $\mathcal F_h^{\Gamma}$ the set of facets that belong to a cell from $\Omega_h^{\Gamma}$ but do not belong to $\partial \Omega_h$.
+
+Given $k \geqslant 0$ and a subset of cells $\omega_h \subset \mathcal T_h$, we introduce $V_h^k(\omega_h)$, $\mathbf V_h^k(\omega_h)$ and $V_h^{k,\mathrm{DG}}(\omega_h)$ respectively the continuous scalar Lagrange space, continuous vectorial Lagrange space and discontinuous scalare Lagrange space of degree $k$ associated to $\omega_h$.
+
+ 

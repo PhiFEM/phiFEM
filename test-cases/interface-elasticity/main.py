@@ -49,7 +49,7 @@ def save_function(fct, file_name):
             of.write_mesh(mesh)
             of.write_function(fct)
 
-from data import levelset, sigma_in, sigma_out, epsilon, exact_solution, source_term_in, source_term_out
+from data import levelset, sigma_in, sigma_out, epsilon, dirichlet
 
 try:
     from data import detection_levelset
@@ -92,8 +92,6 @@ mixd_element = mixed_element([primal_element,
                               flux_element,
                               auxiliary_element])
 
-reference_element = element("Lagrange", cell_name, primal_degree + 2, shape=(gdim,))
-reference_space = dfx.fem.functionspace(mesh, reference_element)
 dg0_element = element("DG", cell_name, 0)
 dg0_space = dfx.fem.functionspace(mesh, dg0_element)
 
@@ -102,30 +100,6 @@ levelset_space = dfx.fem.functionspace(mesh, levelset_element)
 
 primal_space = dfx.fem.functionspace(mesh, primal_element)
 mixed_space  = dfx.fem.functionspace(mesh, mixd_element)
-
-exact_solution_h = dfx.fem.Function(reference_space)
-exact_solution_h.interpolate(exact_solution)
-save_function(exact_solution_h, "exact_solution")
-
-source_term_in_h = dfx.fem.Function(primal_space)
-source_term_in_h.interpolate(source_term_in)
-source_term_out_h = dfx.fem.Function(primal_space)
-source_term_out_h.interpolate(source_term_out)
-
-# source_term_in  = - ufl.div(sigma_in (exact_solution_h))
-# source_term_out = - ufl.div(sigma_out(exact_solution_h))
-# 
-# source_term_in_h = dfx.fem.Function(primal_space)
-# source_term_in_h.x.array[:] = 1.
-# source_term_in_h.interpolate(dfx.fem.Expression(source_term_in, primal_space.element.interpolation_points()))
-
-# save_function(source_term_in_h, "source_term_in")
-
-# source_term_out_h = dfx.fem.Function(primal_space)
-# source_term_out_h.x.array[:] = 1.
-# source_term_out_h.interpolate(dfx.fem.Expression(source_term_out, primal_space.element.interpolation_points()))
-
-# save_function(source_term_out_h, "source_term_out")
 
 phi_h = dfx.fem.Function(levelset_space)
 phi_h.interpolate(levelset)
@@ -136,17 +110,19 @@ v_in, v_out, z_in, z_out, q = ufl.TestFunctions (mixed_space)
 dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
 dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 
-def boundary(x):
-    return np.ones_like(x[0, :]).astype(bool)
+def boundary_D(x):
+    right = np.isclose(x[0], 1.).astype(bool)
+    left  = np.isclose(x[0], 0.).astype(bool)
+    return np.logical_or(right, left)
 
-boundary_facets = dfx.mesh.locate_entities_boundary(mesh,
-                                                   gdim - 1,
-                                                   boundary)
-boundary_dofs = dfx.fem.locate_dofs_topological(mixed_space.sub(0), gdim - 1, boundary_facets)
+boundary_D_facets = dfx.mesh.locate_entities_boundary(mesh,
+                                                      gdim - 1,
+                                                      boundary_D)
+boundary_D_dofs = dfx.fem.locate_dofs_topological(mixed_space.sub(0), gdim - 1, boundary_D_facets)
+# Create a FE function from outer space
 uD = dfx.fem.Function(mixed_space)
-uD.sub(0).x.array[:] = 0.
-# uD.sub(0).interpolate(exact_solution)
-dbc = dfx.fem.dirichletbc(uD.sub(0), boundary_dofs)
+uD.sub(1).interpolate(dirichlet)
+dbc = dfx.fem.dirichletbc(uD.sub(1), boundary_D_dofs)
 
 # Inside domain outward normal and indicator
 interface_outward_n = compute_outward_normal(mesh, levelset)
@@ -224,12 +200,16 @@ pc.setFactorSetUpSolverType()
 pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
 pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
-rhs_in  = ufl.inner(source_term_in,  v_in)
-rhs_out = ufl.inner(source_term_out, v_out)
+# The RHS is not mandatory here but added for the sake of the demo (the source terms are zero)
+source_term_in_h = dfx.fem.Function(primal_space)
+source_term_out_h = dfx.fem.Function(primal_space)
+
+rhs_in  = ufl.inner(source_term_in_h,  v_in)
+rhs_out = ufl.inner(source_term_out_h, v_out)
 stabilization_rhs_in = stabilization_coefficient * \
-                       ufl.inner(source_term_in, ufl.div(z_in))
+                       ufl.inner(source_term_in_h, ufl.div(z_in))
 stabilization_rhs_out = stabilization_coefficient * \
-                        ufl.inner(source_term_out, ufl.div(z_out))
+                        ufl.inner(source_term_out_h, ufl.div(z_out))
 
 L = rhs_in                * (dx(1) + dx(2)) \
   + rhs_out               * (dx(2) + dx(3)) \
