@@ -49,7 +49,7 @@ def save_function(fct, file_name):
             of.write_mesh(mesh)
             of.write_function(fct)
 
-from data import levelset, sigma_in, sigma_out, epsilon, dirichlet
+from data import levelset, sigma_in, sigma_out, epsilon, neumann
 
 try:
     from data import detection_levelset
@@ -110,19 +110,39 @@ v_in, v_out, z_in, z_out, q = ufl.TestFunctions (mixed_space)
 dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
 dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 
-def boundary_D(x):
-    right = np.isclose(x[0], 1.).astype(bool)
+def boundary_dbc(x):
     left  = np.isclose(x[0], 0.).astype(bool)
-    return np.logical_or(right, left)
+    return left
 
-boundary_D_facets = dfx.mesh.locate_entities_boundary(mesh,
-                                                      gdim - 1,
-                                                      boundary_D)
-boundary_D_dofs = dfx.fem.locate_dofs_topological(mixed_space.sub(0), gdim - 1, boundary_D_facets)
+def boundary_nbc(x):
+    right = np.isclose(x[0], 1.).astype(bool)
+    return right
+
+boundary_dbc_facets = dfx.mesh.locate_entities_boundary(mesh,
+                                                        gdim - 1,
+                                                        boundary_dbc)
+boundary_nbc_facets = dfx.mesh.locate_entities_boundary(mesh,
+                                                        gdim - 1,
+                                                        boundary_nbc)
+
+boundary_indices = np.hstack([boundary_dbc_facets, boundary_nbc_facets])
+sorted_indices = np.argsort(boundary_indices)
+dbc_markers = np.ones_like(boundary_dbc_facets).astype(np.int32)
+nbc_markers = 2 * np.ones_like(boundary_nbc_facets).astype(np.int32)
+boundary_markers = np.hstack([dbc_markers, nbc_markers])
+boundary_tags = dfx.mesh.meshtags(mesh, gdim - 1, boundary_indices[sorted_indices], boundary_markers[sorted_indices])
+
+ds = ufl.Measure("ds", domain=mesh, subdomain_data=boundary_tags)
+
 # Create a FE function from outer space
-uD = dfx.fem.Function(mixed_space)
-uD.sub(1).interpolate(dirichlet)
-dbc = dfx.fem.dirichletbc(uD.sub(1), boundary_D_dofs)
+u_dbc = dfx.fem.Function(mixed_space)
+u_nbc = dfx.fem.Function(mixed_space)
+_, u_dbc_out, _, _, _ = u_dbc.split()
+_, u_nbc_out, _, _, _ = u_nbc.split()
+u_nbc_out.interpolate(neumann)
+
+bc_dofs = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim - 1, boundary_dbc_facets)
+bc = dfx.fem.dirichletbc(u_dbc_out, bc_dofs)
 
 # Inside domain outward normal and indicator
 interface_outward_n = compute_outward_normal(mesh, levelset)
@@ -173,18 +193,18 @@ stabilization_facets_out = stabilization_coefficient * \
                     ufl.inner(ufl.jump(sigma_out(u_out), n),
                               ufl.jump(sigma_out(v_out), n))
 
-a = stiffness_in               * (dx(1) + dx(2)) \
-    + stiffness_out            * (dx(2) + dx(3)) \
-    + boundary_in              * dS(4) \
-    + boundary_out             * dS(3) \
-    + penalization             * dx(2) \
-    + stabilization_facets_in  * dS(3) \
-    + stabilization_facets_out * dS(4) \
-    + stabilization_cells_in   * dx(2) \
-    + stabilization_cells_out  * dx(2)
+a =  stiffness_in             * (dx(1) + dx(2)) \
+   + stiffness_out            * (dx(2) + dx(3)) \
+   + boundary_in              * dS(4) \
+   + boundary_out             * dS(3) \
+   + penalization             * dx(2) \
+   + stabilization_facets_in  * dS(3) \
+   + stabilization_facets_out * dS(4) \
+   + stabilization_cells_in   * dx(2) \
+   + stabilization_cells_out  * dx(2)
 
 bilinear_form = dfx.fem.form(a)
-A = assemble_matrix(bilinear_form, bcs=[dbc])
+A = assemble_matrix(bilinear_form, bcs=[bc])
 A.assemble()
 
 ksp = PETSc.KSP().create(mesh.comm)
@@ -201,7 +221,7 @@ pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
 pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
 # The RHS is not mandatory here but added for the sake of the demo (the source terms are zero)
-source_term_in_h = dfx.fem.Function(primal_space)
+source_term_in_h  = dfx.fem.Function(primal_space)
 source_term_out_h = dfx.fem.Function(primal_space)
 
 rhs_in  = ufl.inner(source_term_in_h,  v_in)

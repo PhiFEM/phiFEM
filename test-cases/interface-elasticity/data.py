@@ -34,9 +34,7 @@ def sigma_out(u):
 def levelset(x):
     return (x[0] - X0)**2 + (x[1] - Y0)**2 - DISK_RADIUS**2
 
-def dirichlet(x):
-    vals_y = np.ones_like(x[1])
-    mask = np.where(x[0] < 0.5)
-    vals_y[mask] = -1.
-    vals = np.vstack([np.zeros_like(x[0]), vals_y])
+def neumann(x):
+    vals_x = 1.e-1 * np.ones_like(x[0])
+    vals = np.vstack([vals_x, np.zeros_like(x[1])])
     return vals
