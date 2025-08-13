@@ -1,7 +1,7 @@
 import numpy as np
 import ufl
 
-DISK_RADIUS = 0.3
+DISK_RADIUS = np.pi/10.
 # Disk center
 X0, Y0 = [0.5, 0.5]
 
@@ -12,12 +12,12 @@ def mu(E, nu):
     return E/2.0/(1.0+nu)
 
 # Material parameters inside the disk
-E_in = 7.
+E_in = 10.
 nu_in = 0.3
 lmbda_in = lmbda(E_in, nu_in)
 mu_in = mu(E_in, nu_in)
 # Material parameters outside the disk
-E_out = 2.28
+E_out = 0.7
 nu_out = 0.3
 lmbda_out = lmbda(E_out, nu_out)
 mu_out = mu(E_out, nu_out)
