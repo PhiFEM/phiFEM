@@ -220,21 +220,9 @@ pc.setFactorSetUpSolverType()
 pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
 pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
-# The RHS is not mandatory here but added for the sake of the demo (the source terms are zero)
-source_term_in_h  = dfx.fem.Function(primal_space)
-source_term_out_h = dfx.fem.Function(primal_space)
+traction = ufl.inner(u_nbc_out, v_out)
 
-rhs_in  = ufl.inner(source_term_in_h,  v_in)
-rhs_out = ufl.inner(source_term_out_h, v_out)
-stabilization_rhs_in = stabilization_coefficient * \
-                       ufl.inner(source_term_in_h, ufl.div(z_in))
-stabilization_rhs_out = stabilization_coefficient * \
-                        ufl.inner(source_term_out_h, ufl.div(z_out))
-
-L = rhs_in                * (dx(1) + dx(2)) \
-  + rhs_out               * (dx(2) + dx(3)) \
-  + stabilization_rhs_in  * dx(2) \
-  + stabilization_rhs_out * dx(2)
+L = traction * ds(2)
 
 linear_form = dfx.fem.form(L)
 b = assemble_vector(linear_form)
@@ -252,14 +240,25 @@ PETSc.Log.view(viewer)
 ksp.destroy()
 
 solution_uh_in, solution_uh_out, _, _, _ = solution_wh.split()
-solution_uh_in = solution_uh_in.collapse()
-solution_uh_out = solution_uh_out.collapse()
 
+# Combine the in and out solutions
 solution_h = dfx.fem.Function(mixed_space)
 solution_uh, _, _, _, _ = solution_h.split()
 solution_uh = solution_uh.collapse()
+
+mesh.topology.create_connectivity(gdim, gdim)
+dofs_in_cells = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim, inside_cells)
+dofs_in_facets = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim - 1, facets_tags.find(4))
+dofs_in = np.setdiff1d(dofs_in_cells, dofs_in_facets)
+dofs_out = dfx.fem.locate_dofs_topological(mixed_space.sub(0), gdim, outside_cells)
+
+solution_uh_in.x.array[dofs_out] = 0.
+solution_uh_out.x.array[dofs_in] = 0.
+solution_uh_in = solution_uh_in.collapse()
+solution_uh_out = solution_uh_out.collapse()
 solution_uh.x.array[:] = solution_uh_in.x.array[:] + solution_uh_out.x.array[:]
 
 save_function(solution_uh,     "solution")
 save_function(solution_uh_in,  "solution_in")
 save_function(solution_uh_out, "solution_out")
+save_function(phi_h,           "levelset")
