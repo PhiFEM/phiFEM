@@ -39,10 +39,9 @@ def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
         cg1_levelset = dfx.fem.Function(cg1_space)
         cg1_levelset.interpolate(levelset)
         out.x.array[np.where(cg1_levelset.x.array[:] > 0.)] = 1.
-        ins.x.array[np.where(cg1_levelset.x.array[:] < 0.)] = 1.
+        ins.x.array[:] = np.abs(out.x.array[:] - 1.)
     elif callable(levelset):
         out.interpolate(lambda x: levelset(x) > 0.)
-        ins.interpolate(lambda x: levelset(x) < 0.)
     else:
         raise ValueError("levelset must be of type dfx.fem.Function or callable.")
 
@@ -59,8 +58,7 @@ def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
     outward_normal.sub(1).x.array[:] = np.nan_to_num(outward_normal.sub(1).x.array, nan=0.0)
 
     # Compute the unit outwards normal, but the scaling might create NaN where grad(ins) = 0
-    norm_grad_ext = ufl.sqrt(inner(grad(ins), grad(ins))) + 1.e-10
-    normal_Omega_h = grad(ins) / norm_grad_ext
+    normal_Omega_h = -grad(out) / norm_grad_ext
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
     inward_normal = dfx.fem.Function(W0)
