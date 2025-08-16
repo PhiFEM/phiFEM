@@ -20,20 +20,21 @@ def rotation(angle, x):
 """
 Dara_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
 """
-data_11 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), -1)
-data_12 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), 1)
-data_13 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), 2)
-data_14 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125 * np.ones_like(x[0, :])), 3)
+def levelset_1(x):
+    return x[0]**2 + x[1]**2 - 0.125 * np.ones_like(x[0])
+
+data_11 = ("Circle radius 1", "disk", levelset_1, -1)
+data_12 = ("Circle radius 1", "disk", levelset_1,  1)
+data_13 = ("Circle radius 1", "disk", levelset_1,  2)
+data_14 = ("Circle radius 1", "disk", levelset_1,  3)
 
 def levelset_2(x):
-    def fct(x):
-        return np.sum(np.abs(rotation(np.pi/6. - np.pi/4., x)), axis=0)
-    return fct(x) - np.sqrt(2.)/2.
+    return np.sum(np.abs(rotation(np.pi/6. - np.pi/4., x)), axis=0) - np.sqrt(2.)/2.
 
-data_21 = ("Square", "square", Levelset(levelset_2), -1)
-data_22 = ("Square", "square", Levelset(levelset_2), 1)
-data_23 = ("Square", "square", Levelset(levelset_2), 2)
-data_24 = ("Square", "square", Levelset(levelset_2), 3)
+data_21 = ("Square", "square", levelset_2, -1)
+data_22 = ("Square", "square", levelset_2,  1)
+data_23 = ("Square", "square", levelset_2,  2)
+data_24 = ("Square", "square", levelset_2,  3)
 
 testdata = [data_11, data_12, data_13, data_14,
             data_21, data_22, data_23, data_24]
@@ -66,14 +67,17 @@ def test_outward_normal(data_name, mesh_name, levelset, discrete_levelset_degree
     else:
         levelset_test = levelset
 
-    w0 = compute_outward_normal(mesh, levelset_test)
+    outward, inward = compute_outward_normal(mesh, levelset_test)
 
     if save_normal:
-        with XDMFFile(mesh.comm, "./normal.xdmf", "w") as of:
+        with XDMFFile(mesh.comm, "./outward_normal.xdmf", "w") as of:
             of.write_mesh(mesh)
-            of.write_function(w0)
+            of.write_function(outward)
+        with XDMFFile(mesh.comm, "./inward_normal.xdmf", "w") as of:
+            of.write_mesh(mesh)
+            of.write_function(inward)
 
-    W0 = w0.function_space
+    W0 = outward.function_space
 
     mesh.topology.create_connectivity(cdim, cdim)
     f2v_connect = mesh.topology.connectivity(fdim, 0)
@@ -93,7 +97,7 @@ def test_outward_normal(data_name, mesh_name, levelset, discrete_levelset_degree
         dof_1 = dfx.fem.locate_dofs_topological(W0.sub(1), cdim, neighbor_inside_cell)
         verts = f2v_map[facet]
         vec_facet = [points[verts][0][0] - points[verts][1][0], points[verts][0][1] - points[verts][1][1]]
-        val_normal = [w0.sub(0).x.array[dof_0][0], w0.sub(1).x.array[dof_1][0]]
+        val_normal = [outward.sub(0).x.array[dof_0][0], outward.sub(1).x.array[dof_1][0]]
         inner_pdct = np.inner(vec_facet, val_normal)
         
         # Check that the gradient from the levelset is orthogonal to the boundary facet

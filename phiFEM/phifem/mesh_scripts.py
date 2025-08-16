@@ -17,14 +17,15 @@ PathStr = PathLike[str] | str
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
 def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
-    """ Compute the outward normal to Omega_h.
+    """ Compute the unit outward and inward normals to Omega_h.
 
     Args:
         mesh: the mesh on which the levelset is discretized.
         levelset: the levelset expression defining Omega_h.
     
     Returns:
-        w0: the vector field defining the outward normal.
+        outward_normal: the vector field defining the unit outward normal.
+        inward_normal: the vector field defining the unit inward normal
     """
     # This function is used to define the unit outward pointing normal to Gamma_h
     DG0VecElement = element("DG", mesh.topology.cell_name(), 0, shape=(mesh.topology.dim,))
@@ -32,29 +33,44 @@ def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
 
     cg1_element = element("Lagrange", mesh.topology.cell_name(), 1)
     cg1_space = dfx.fem.functionspace(mesh, cg1_element)
+    out = dfx.fem.Function(cg1_space)
+    ins = dfx.fem.Function(cg1_space)
     if type(levelset) is dfx.fem.Function:
         cg1_levelset = dfx.fem.Function(cg1_space)
         cg1_levelset.interpolate(levelset)
-        ext = dfx.fem.Function(cg1_space)
-        ext.x.array[np.where(cg1_levelset.x.array[:] > 0.)] = 1.
+        out.x.array[np.where(cg1_levelset.x.array[:] > 0.)] = 1.
+        ins.x.array[np.where(cg1_levelset.x.array[:] < 0.)] = 1.
     elif callable(levelset):
-        ext = dfx.fem.Function(cg1_space)
-        ext.interpolate(lambda x: levelset(x) > 0.)
+        out.interpolate(lambda x: levelset(x) > 0.)
+        ins.interpolate(lambda x: levelset(x) < 0.)
     else:
         raise ValueError("levelset must be of type dfx.fem.Function or callable.")
 
-    # Compute the unit outwards normal, but the scaling might create NaN where grad(ext) = 0
-    norm_grad_ext = ufl.sqrt(inner(grad(ext), grad(ext))) + 1.e-10
-    normal_Omega_h = grad(ext) / norm_grad_ext
+    # Compute the unit outwards normal, but the scaling might create NaN where grad(out) = 0
+    norm_grad_ext = ufl.sqrt(inner(grad(out), grad(out))) + 1.e-10
+    normal_Omega_h = grad(out) / norm_grad_ext
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
-    w0 = dfx.fem.Function(W0)
-    w0.sub(0).interpolate(dfx.fem.Expression(normal_Omega_h[0], W0.sub(0).element.interpolation_points()))
-    w0.sub(1).interpolate(dfx.fem.Expression(normal_Omega_h[1], W0.sub(1).element.interpolation_points()))
+    outward_normal = dfx.fem.Function(W0)
+    outward_normal.sub(0).interpolate(dfx.fem.Expression(normal_Omega_h[0], W0.sub(0).element.interpolation_points()))
+    outward_normal.sub(1).interpolate(dfx.fem.Expression(normal_Omega_h[1], W0.sub(1).element.interpolation_points()))
 
-    w0.sub(0).x.array[:] = np.nan_to_num(w0.sub(0).x.array, nan=0.0)
-    w0.sub(1).x.array[:] = np.nan_to_num(w0.sub(1).x.array, nan=0.0)
-    return w0
+    outward_normal.sub(0).x.array[:] = np.nan_to_num(outward_normal.sub(0).x.array, nan=0.0)
+    outward_normal.sub(1).x.array[:] = np.nan_to_num(outward_normal.sub(1).x.array, nan=0.0)
+
+    # Compute the unit outwards normal, but the scaling might create NaN where grad(ins) = 0
+    norm_grad_ext = ufl.sqrt(inner(grad(ins), grad(ins))) + 1.e-10
+    normal_Omega_h = grad(ins) / norm_grad_ext
+
+    # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
+    inward_normal = dfx.fem.Function(W0)
+    inward_normal.sub(0).interpolate(dfx.fem.Expression(normal_Omega_h[0], W0.sub(0).element.interpolation_points()))
+    inward_normal.sub(1).interpolate(dfx.fem.Expression(normal_Omega_h[1], W0.sub(1).element.interpolation_points()))
+
+    inward_normal.sub(0).x.array[:] = np.nan_to_num(inward_normal.sub(0).x.array, nan=0.0)
+    inward_normal.sub(1).x.array[:] = np.nan_to_num(inward_normal.sub(1).x.array, nan=0.0)
+
+    return outward_normal, inward_normal
 
 def _reshape_facets_map(f2c_connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
     """ Reshape the facets-to-cells indices mapping.
