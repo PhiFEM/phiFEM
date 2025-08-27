@@ -145,7 +145,7 @@ bc_dofs = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim - 1, boundary
 bc = dfx.fem.dirichletbc(u_dbc_out, bc_dofs)
 
 # Inside domain outward normal and indicator
-interface_outward_n = compute_outward_normal(mesh, levelset)
+interface_outward_n, interface_inward_n = compute_outward_normal(mesh, levelset)
 inside_indicator = dfx.fem.Function(dg0_space)
 inside_indicator.x.petsc_vec.set(0.)
 inside_cells = cells_tags.find(1)
@@ -156,7 +156,6 @@ inside_indicator.x.array[disk_cells] = 1.
 boundary_in = ufl.inner(2. * ufl.avg(ufl.dot(y_in, interface_outward_n) * inside_indicator), 2. * ufl.avg(v_in * inside_indicator))
 
 # Outside domain inward normal and indicator
-interface_inward_n = compute_outward_normal(mesh, lambda x: -levelset(x))
 outside_indicator = dfx.fem.Function(dg0_space)
 outside_indicator.x.petsc_vec.set(0.)
 outside_cells = cells_tags.find(3)
