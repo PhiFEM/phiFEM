@@ -9,7 +9,7 @@ import pytest
 import ufl
 
 from phiFEM.phifem.mesh_scripts import compute_tags_measures
-from phiFEM.tests.tests_data.utils import create_disk
+from phiFEM.tests.tests_data.utils import create_disk, create_square, create_square_quad
 from tags_plot.plot import plot_mesh_tags
 import matplotlib.pyplot as plt
 
@@ -20,13 +20,17 @@ data_1 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 
 data_2 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 1)
 data_3 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 2)
 data_4 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 3)
-# data_5 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", -1)
-# data_6 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 1)
-# data_7 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 2)
-# data_8 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 3)
+data_5 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", -1)
+data_6 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 1)
+data_7 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 2)
+data_8 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 3)
+# data_9 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", -1)
+# data_10 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 1)
+# data_11 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 2)
+# data_12 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 3)
 
-testdata = [data_1, data_2, data_3, data_4]
-            # data_5, data_6, data_7, data_8]
+testdata = [data_1, data_2, data_3, data_4,
+            data_5, data_6, data_7, data_8]
 
 
 def integrand(n):
@@ -36,13 +40,18 @@ parent_dir = os.path.dirname(__file__)
 
 @pytest.mark.parametrize("data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree", testdata)
 def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree, save_as_benchmark=False, plot=False):
-    mesh_path = os.path.join(parent_dir, "tests_data", "disk" + ".xdmf")
+    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
 
     if not os.path.isfile(mesh_path):
         print(f"{mesh_path} not found, we create it.")
-        create_disk(mesh_path, 0.1)
+        if mesh_name=="disk":
+            create_disk(mesh_path, 0.1)
+        if mesh_name=="square":
+            create_square(mesh_path, 0.1)
+        if mesh_name=="square_quad":
+            create_square_quad(mesh_path, 0.1)
     
-    with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", "disk.xdmf"), "r") as fi:
+    with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf"), "r") as fi:
         mesh = fi.read_mesh()
     
     if discrete_levelset_degree > 0:
@@ -67,7 +76,7 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
 
     levelset_test_out_cg = dfx.fem.Function(levelset_test_cg.function_space)
     levelset_test_out_cg.x.array[:] = -levelset_test_cg.x.array[:]
-    cells_tags_out, _, submesh_out, _, _ = compute_tags_measures(mesh, levelset_test_out_cg, detection_degree, box_mode=False)
+    cells_tags_out, facets_tags_out, submesh_out, _, _ = compute_tags_measures(mesh, levelset_test_out_cg, detection_degree, box_mode=False)
 
     if plot:
         fig = plt.figure()
@@ -94,32 +103,42 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
     test_int_mesh_out = integrand(n) * d_from_outside
     val_test_mesh_out = assemble_scalar(dfx.fem.form(test_int_mesh_out))
 
-
     n = ufl.FacetNormal(submesh_in)
     test_int_submesh_in = integrand(n) * ufl.ds
-    val_test_submesh_in = assemble_scalar(dfx.fem.form(test_int_submesh_in))
+    benchmark_submesh_in = assemble_scalar(dfx.fem.form(test_int_submesh_in))
     
-    assert val_test_mesh_in == val_test_submesh_in
+    assert val_test_mesh_in == benchmark_submesh_in, f"val_test = {val_test_mesh_in}; val_benchmark = {benchmark_submesh_in}; One-sided integral from inside."
 
     # Mark corresponding facets (i.e. where levelset < 0)
     fdim = submesh_out.topology.dim - 1
-    facets = dfx.mesh.locate_entities_boundary(submesh_out, fdim, lambda x: levelset(x) < 0.)
+    facets = facets_tags_out.find(4)
 
-    sorted_indices = np.argsort(facets)
+    all_boundary_facets = dfx.mesh.locate_entities_boundary(submesh_out, fdim, lambda x: np.ones_like(x[0]).astype(bool))
+    comp_facets = np.setdiff1d(all_boundary_facets, facets)
+
+    indices = np.hstack([facets, comp_facets])
+    sorted_indices = np.argsort(indices)
     facets_markers = np.ones_like(facets).astype(np.int32)
+    comp_markers = -np.ones_like(comp_facets).astype(np.int32)
+    markers = np.hstack([facets_markers, comp_markers])
     facets_tags_out = dfx.mesh.meshtags(submesh_out,
                                         fdim,
-                                        facets[sorted_indices],
-                                        facets_markers[sorted_indices])
+                                        indices[sorted_indices],
+                                        markers[sorted_indices])
+    if plot:
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(submesh_out, facets_tags_out, ax, expression_levelset=levelset)
+        plt.savefig("facets_tags_out.png", dpi=500, bbox_inches="tight")
 
     ds = ufl.Measure("ds", domain=submesh_out, subdomain_data=facets_tags_out)
 
     n = ufl.FacetNormal(submesh_out)
     test_int_submesh_out = integrand(n) * ds(1)
-    val_test_submesh_out = assemble_scalar(dfx.fem.form(test_int_submesh_out))
-    
-    assert val_test_mesh_out == val_test_submesh_out
+    benchmark_submesh_out = assemble_scalar(dfx.fem.form(test_int_submesh_out))
+
+    assert val_test_mesh_out == benchmark_submesh_out, f"val_test = {val_test_mesh_out}; val_benchmark = {benchmark_submesh_out}; One-sided integral from outside."
 
 if __name__=="__main__":
-    test_data = data_1
-    test_one_sided_integral(data_1[0], data_1[1], data_1[2], data_1[3], data_1[4], data_1[5])
+    test_data = data_5
+    test_one_sided_integral(test_data[0], test_data[1], test_data[2], test_data[3], test_data[4], test_data[5], plot=False)

@@ -425,8 +425,8 @@ def compute_tags_measures(mesh: Mesh,
 
         cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
         facets_tags = _tag_facets(submesh, cells_tags)
-        d_boundary_outside = None
-        d_boundary_inside  = None
+        d_boundary_outside  = None
+        d_boundary_inside   = None
 
     return cells_tags, facets_tags, submesh, d_boundary_outside, d_boundary_inside
 
