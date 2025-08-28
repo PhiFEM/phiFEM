@@ -16,6 +16,41 @@ PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
+def _one_sided_edge_measure(mesh:               Mesh,
+                             cut_cells:          list[int],
+                             integration_facets: list[int],
+                             ind: int):
+    """ Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
+
+    Args:
+        mesh: the mesh on which we compute the measure.
+        cut_cells: list of cells indices from which the integral is computed.
+        integration_facets: list of facets indices on which the integral is computed.
+        ind: index used in the measure.
+    Returns:
+        measure: the integration measure of the one-sided integral.
+    """
+    cdim = mesh.topology.dim
+    fdim = cdim - 1
+    f2c_connect = mesh.topology.connectivity(fdim, cdim)
+    c2f_connect = mesh.topology.connectivity(cdim, fdim)
+    f2c_map = _reshape_facets_map(f2c_connect)
+
+    # Omega_h^Gamma one-sided boundary integral
+    connected_cells = f2c_map[integration_facets]
+    num_facets_per_cell = len(c2f_connect.links(0))
+    c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+
+    mask = np.isin(connected_cells, cut_cells)
+    mask[mask[:, 0] == mask[:, 1]] = [True, False]
+    right_side_cells = np.reshape(connected_cells[mask], (connected_cells.shape[0],1))
+
+    facets_local_indices = np.nonzero(np.isin(c2f_map[right_side_cells].reshape(right_side_cells.shape[0], num_facets_per_cell), integration_facets))[1]
+    integration_entities = np.ravel(np.column_stack((right_side_cells, facets_local_indices))).astype(np.int32)
+
+    measure = ufl.Measure("ds", domain=mesh, subdomain_data=[(ind, integration_entities)])
+    return measure(ind)
+
 def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
     """ Compute the outward normal to Omega_h.
 
@@ -340,10 +375,10 @@ def _tag_facets(mesh: Mesh,
 
     return facets_tags
 
-def compute_tags(mesh: Mesh,
-                 detection_levelset: NDArrayFunction,
-                 detection_degree: int,
-                 box_mode: bool = False) -> Tuple[MeshTags, Mesh | None]:
+def compute_tags_measures(mesh: Mesh,
+                          detection_levelset: NDArrayFunction,
+                          detection_degree: int,
+                          box_mode: bool = False) -> Tuple[MeshTags, MeshTags, Mesh | None, ufl.Measure | None, ufl.Measure | None]:
     """ Compute the mesh tags.
 
     Args:
@@ -355,13 +390,17 @@ def compute_tags(mesh: Mesh,
     Returns
         The mesh/submesh cells tags.
         The mesh/submesh facets tags.
-        The mesh (input mesh if box_mode is True).
+        The mesh/submesh (input mesh if box_mode is True).
+        The one-sided measure from inside.
+        The one-sided measure from outside.
     """
     cells_tags = _tag_cells(mesh, detection_levelset, detection_degree)
 
     if box_mode:
         submesh = mesh
         facets_tags = _tag_facets(mesh, cells_tags)
+        d_boundary_outside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(4), 100)
+        d_boundary_inside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(3), 101)
     else:
         # We create the submesh
         omega_h_cells = np.unique(np.hstack([cells_tags.find(1),
@@ -372,8 +411,10 @@ def compute_tags(mesh: Mesh,
 
         cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
         facets_tags = _tag_facets(submesh, cells_tags)
+        d_boundary_outside = None
+        d_boundary_inside  = None
 
-    return cells_tags, facets_tags, submesh
+    return cells_tags, facets_tags, submesh, d_boundary_outside, d_boundary_inside
 
 
 def compute_levelset_boundary_error(mesh: Mesh,
