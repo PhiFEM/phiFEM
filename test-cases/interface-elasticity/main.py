@@ -2,6 +2,7 @@ import argparse
 from   basix.ufl import element, mixed_element
 import numpy as np
 import dolfinx as dfx
+from   dolfinx.fem import assemble_scalar
 from   dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from   dolfinx.io import XDMFFile
 from   mpi4py import MPI
@@ -12,6 +13,9 @@ import yaml
 
 # Import phiFEM modules
 from phiFEM.phifem.mesh_scripts import compute_tags, compute_outward_normal
+
+from tags_plot.plot import plot_mesh_tags
+import matplotlib.pyplot as plt
 
 parent_dir = os.path.dirname(__file__)
 
@@ -75,10 +79,21 @@ stabilization_coefficient = parameters["stabilization_coefficient"]
 nx = int(np.abs(bbox[0][1] - bbox[0][0]) * np.sqrt(2.) / mesh_size)
 ny = int(np.abs(bbox[1][1] - bbox[1][0]) * np.sqrt(2.) / mesh_size)
 # Quads cells
-cell_type = dfx.cpp.mesh.CellType(-4)
+cell_type = dfx.cpp.mesh.CellType.triangle
+# cell_type = dfx.cpp.mesh.CellType.quadrilateral
 mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, np.asarray(bbox).T, [nx, ny], cell_type)
 
 cells_tags, facets_tags, _ = compute_tags(mesh, levelset, detection_degree, box_mode=True)
+
+fig = plt.figure()
+ax = fig.subplots()
+plot_mesh_tags(mesh, facets_tags, ax, linewidth=0.2)
+plt.savefig("facets_tags.png", dpi=500, bbox_inches="tight")
+
+fig = plt.figure()
+ax = fig.subplots()
+plot_mesh_tags(mesh, cells_tags, ax, linewidth=0.2)
+plt.savefig("cells_tags.png", dpi=500, bbox_inches="tight")
 
 gdim = mesh.geometry.dim
 cell_name = mesh.topology.cell_name()
@@ -100,6 +115,28 @@ levelset_space = dfx.fem.functionspace(mesh, levelset_element)
 
 primal_space = dfx.fem.functionspace(mesh, primal_element)
 mixed_space  = dfx.fem.functionspace(mesh, mixd_element)
+
+def point_source(x):
+    return np.logical_and(np.isclose(x[0, :], 1.0),
+                            np.abs(x[1, :] - 0.5 * np.ones_like(x[1, :])) <= 1.0/ny)
+
+# Defines mapping between matrices and functions
+primal_space_y = primal_space.sub(1)
+primal_space_y, primal_dofmap_y = primal_space_y.collapse()
+dofs_primal_space_y = primal_space_y.tabulate_dof_coordinates()[:,:2]
+
+primal_dofs_y = dfx.fem.locate_dofs_geometrical(primal_space_y, point_source)
+point_source_dofs = primal_dofmap_y[primal_dofs_y[0]]
+
+# Primal problem RHS vector
+f_h = dfx.fem.Function(primal_space)
+f_h.sub(1).x.array[point_source_dofs] = -1.
+
+# Normalization of the point source function
+norm_f_h_int = ufl.sqrt(ufl.inner(f_h, f_h)) * ufl.dx
+norm_f_h_form = dfx.fem.form(norm_f_h_int)
+norm_f_h = assemble_scalar(norm_f_h_form)
+f_h /= norm_f_h/0.00001
 
 phi_h = dfx.fem.Function(levelset_space)
 phi_h.interpolate(levelset)
@@ -219,9 +256,17 @@ pc.setFactorSetUpSolverType()
 pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
 pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
-traction = ufl.inner(u_nbc_out, v_out)
+stabilization_rhs_in = stabilization_coefficient * \
+                    (ufl.inner(f_h, ufl.div(z_in)))
+stabilization_rhs_out = stabilization_coefficient * \
+                    (ufl.inner(f_h, ufl.div(z_out)))
+rhs_in  = ufl.inner(f_h, v_in)
+rhs_out = ufl.inner(f_h, v_out)
 
-L = traction * ds(2)
+L = rhs_in                * (dx(1) + dx(2)) \
+  + rhs_out               * (dx(2) + dx(3)) \
+  - stabilization_rhs_in  * dx(2) \
+  - stabilization_rhs_out * dx(2)
 
 linear_form = dfx.fem.form(L)
 b = assemble_vector(linear_form)
@@ -246,13 +291,9 @@ solution_uh, _, _, _, _ = solution_h.split()
 solution_uh = solution_uh.collapse()
 
 mesh.topology.create_connectivity(gdim, gdim)
-dofs_in_cells = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim, inside_cells)
-dofs_in_facets = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim - 1, facets_tags.find(4))
-dofs_in = np.setdiff1d(dofs_in_cells, dofs_in_facets)
-dofs_out = dfx.fem.locate_dofs_topological(mixed_space.sub(0), gdim, outside_cells)
+dofs_cut = dfx.fem.locate_dofs_topological(mixed_space.sub(0), gdim, cells_tags.find(2))
 
-solution_uh_in.x.array[dofs_out] = 0.
-solution_uh_out.x.array[dofs_in] = 0.
+solution_uh_in.x.array[dofs_cut] = 0.
 solution_uh_in = solution_uh_in.collapse()
 solution_uh_out = solution_uh_out.collapse()
 solution_uh.x.array[:] = solution_uh_in.x.array[:] + solution_uh_out.x.array[:]

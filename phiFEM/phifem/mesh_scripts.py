@@ -81,7 +81,7 @@ def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
         raise ValueError("levelset must be of type dfx.fem.Function or callable.")
 
     # Compute the unit outwards normal, but the scaling might create NaN where grad(out) = 0
-    norm_grad_ext = ufl.sqrt(inner(grad(out), grad(out))) + 1.e-10
+    norm_grad_ext = ufl.sqrt(inner(grad(out), grad(out))) + 1.e-12
     normal_Omega_h = grad(out) / norm_grad_ext
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
@@ -89,10 +89,10 @@ def compute_outward_normal(mesh: Mesh, levelset: Callable) -> Function:
     outward_normal.sub(0).interpolate(dfx.fem.Expression(normal_Omega_h[0], W0.sub(0).element.interpolation_points()))
     outward_normal.sub(1).interpolate(dfx.fem.Expression(normal_Omega_h[1], W0.sub(1).element.interpolation_points()))
 
+    # Compute the unit outwards normal, but the scaling might create NaN where grad(ins) = 0
     outward_normal.sub(0).x.array[:] = np.nan_to_num(outward_normal.sub(0).x.array, nan=0.0)
     outward_normal.sub(1).x.array[:] = np.nan_to_num(outward_normal.sub(1).x.array, nan=0.0)
 
-    # Compute the unit outwards normal, but the scaling might create NaN where grad(ins) = 0
     normal_Omega_h = -grad(out) / norm_grad_ext
 
     # In order to remove the eventual NaNs, we interpolate into a vector functions space and enforce the values of the gradient to 0. in the cells that are not cut
@@ -340,6 +340,7 @@ def _tag_facets(mesh: Mesh,
     # Facets shared by an exterior cell and a cut cell
     exterior_boundary_facets = np.intersect1d(c2f_map[exterior_cells],
                                               c2f_map[cut_cells])
+
     # Boundary facets ∂Ω_h
     real_boundary_facets = np.intersect1d(c2f_map[cut_cells], 
                                           dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[1]).astype(bool)))

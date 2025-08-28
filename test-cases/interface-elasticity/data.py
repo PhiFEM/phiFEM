@@ -17,7 +17,7 @@ nu_in = 0.3
 lmbda_in = lmbda(E_in, nu_in)
 mu_in = mu(E_in, nu_in)
 # Material parameters outside the disk
-E_out = 0.7
+E_out = 0.001
 nu_out = 0.3
 lmbda_out = lmbda(E_out, nu_out)
 mu_out = mu(E_out, nu_out)

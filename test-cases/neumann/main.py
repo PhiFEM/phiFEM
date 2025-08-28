@@ -13,7 +13,7 @@ import ufl
 import yaml
 
 # Import phiFEM modules
-from phiFEM.phifem.mesh_scripts import compute_tags, compute_outward_normal, marking
+from phiFEM.phifem.mesh_scripts import compute_tags_measures, compute_outward_normal, marking
 
 parent_dir = os.path.dirname(__file__)
 
@@ -108,7 +108,7 @@ results["Solve time"] = []
 estimator = np.inf
 for i in range(20):
     # Compute mesh tags
-    cells_tags, facets_tags, mesh = compute_tags(mesh, detection_levelset, boundary_detection_degree, box_mode=box_mode)
+    cells_tags, facets_tags, mesh, d_boundary_from_inside, _ = compute_tags_measures(mesh, detection_levelset, boundary_detection_degree, box_mode=box_mode)
 
     # Defines finite elements
     cell_name = mesh.topology.cell_name()
@@ -191,20 +191,11 @@ for i in range(20):
     φ-FEM formulation
     """
     omega_h_indicator = 1.
-    # If box mode is used, the unit outward pointing normal to Omega_h has to be computed on internal edges
+    boundary = ufl.inner(ufl.inner(y, n), v)
     if box_mode:
-        omega_h_n = compute_outward_normal(mesh, levelset)
-        omega_h_indicator = dfx.fem.Function(dg0_space)
-        omega_h_indicator.x.petsc_vec.set(0.)
-        interior_cells = cells_tags.find(1)
-        cut_cells      = cells_tags.find(2)
-        omega_h_cells = np.union1d(interior_cells, cut_cells)
-        omega_h_indicator.x.array[omega_h_cells] = 1.
-
-        boundary = ufl.inner(2. * ufl.avg(ufl.inner(y, omega_h_n) * omega_h_indicator), 2. * ufl.avg(ufl.inner(v, omega_h_indicator)))
-        dBoundary = dS(4)
+        d_boundary = d_boundary_from_inside
     else:
-        boundary = ufl.inner(ufl.inner(y, n), v)
+        d_boundary = ufl.ds
 
     stiffness = ufl.inner(ufl.grad(u), ufl.grad(v)) + ufl.inner(u, v)
 
@@ -219,7 +210,7 @@ for i in range(20):
 
     # The φ-FEM bilinear form
     a = stiffness              * (dx(1) + dx(2)) \
-        + boundary             * dBoundary \
+        + boundary             * d_boundary \
         + penalization         * dx(2) \
         + stabilization_facets * dS(3)
 
