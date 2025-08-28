@@ -17,9 +17,9 @@ PathStr = PathLike[str] | str
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
 def _one_sided_edge_measure(mesh:               Mesh,
-                             cut_cells:          list[int],
-                             integration_facets: list[int],
-                             ind: int):
+                            cut_cells:          list[int],
+                            integration_facets: list[int],
+                            ind:                int):
     """ Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
 
     Args:
@@ -41,13 +41,27 @@ def _one_sided_edge_measure(mesh:               Mesh,
     num_facets_per_cell = len(c2f_connect.links(0))
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
+    # We select the cut cells among the connected cells
     mask = np.isin(connected_cells, cut_cells)
-    mask[mask[:, 0] == mask[:, 1]] = [True, False]
     right_side_cells = np.reshape(connected_cells[mask], (connected_cells.shape[0],1))
 
-    facets_local_indices = np.nonzero(np.isin(c2f_map[right_side_cells].reshape(right_side_cells.shape[0], num_facets_per_cell), integration_facets))[1]
-    integration_entities = np.ravel(np.column_stack((right_side_cells, facets_local_indices))).astype(np.int32)
+    # Removing duplicate cells while preserving the ordering
+    right_side_cells = right_side_cells[np.sort(np.unique(right_side_cells, return_index=True)[1])]
 
+    # We compute the local indices of the integration facets connected to the cells
+    facets_mask = np.isin(c2f_map[right_side_cells].reshape(right_side_cells.shape[0], num_facets_per_cell), integration_facets)
+    local_indices = np.tile(np.arange(num_facets_per_cell), (facets_mask.shape[0],1))
+    local_indices[np.logical_not(facets_mask)] = -1
+
+    # We repeat the cells indices if a cell has several facets in the integration_facets
+    num_rep = (local_indices >= 0).astype(np.int32).sum(axis=1)
+    right_side_cells_rep = np.repeat(right_side_cells, num_rep)
+    local_indices = local_indices[np.where(local_indices != -1)]
+
+    # We ravel the cells (global) indices and facets (local) indices in order to obtain something like: [cell_1, facet_1, cell_1, facet_2, cell_2, facet_1, cell_3, facet_1]
+    integration_entities = np.ravel(np.column_stack((right_side_cells_rep, local_indices))).astype(np.int32)
+
+    # We compute the one-sided measure
     measure = ufl.Measure("ds", domain=mesh, subdomain_data=[(ind, integration_entities)])
     return measure(ind)
 
