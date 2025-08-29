@@ -426,6 +426,7 @@ def compute_tags_measures(mesh: Mesh,
         facets_tags = _tag_facets(mesh, cells_tags)
         d_boundary_outside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(4), 100)
         d_boundary_inside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(3), 101)
+        submesh_maps = None
     else:
         # We create the submesh
         omega_h_cells = np.unique(np.hstack([cells_tags.find(1),
@@ -438,8 +439,9 @@ def compute_tags_measures(mesh: Mesh,
         facets_tags = _tag_facets(submesh, cells_tags)
         d_boundary_outside  = None
         d_boundary_inside   = None
+        submesh_maps = [c_map, v_map, n_map]
 
-    return cells_tags, facets_tags, submesh, d_boundary_outside, d_boundary_inside
+    return cells_tags, facets_tags, submesh, d_boundary_outside, d_boundary_inside, submesh_maps
 
 
 def compute_levelset_boundary_error(mesh: Mesh,
