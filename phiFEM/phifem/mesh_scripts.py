@@ -32,6 +32,7 @@ def _one_sided_edge_measure(mesh:               Mesh,
     """
     cdim = mesh.topology.dim
     fdim = cdim - 1
+    mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
     f2c_map = _reshape_facets_map(f2c_connect)
@@ -164,6 +165,7 @@ def _transfer_cells_tags(source_mesh_cells_tags: MeshTags,
                                         cdim,
                                         dest_cells_indices[sorted_indices],
                                         dest_cells_markers[sorted_indices])
+
     return dest_cells_tags
 
 def _tag_cells(mesh: Mesh,
@@ -275,7 +277,6 @@ def _tag_cells(mesh: Mesh,
             neighbor_cells = f2c_map[c2f_map[cut_indices]]
             detection_measure_subdomain = neighbor_cells
 
-    
     exterior_indices = np.where(cells_detection_vec == 1.)[0]
     interior_indices = np.where(cells_detection_vec == -1.)[0]
     
@@ -304,8 +305,8 @@ def _tag_cells(mesh: Mesh,
     return cells_tags
 
 def _tag_facets(mesh: Mesh,
-               cells_tags: MeshTags,
-               plot: bool = False) -> MeshTags:
+                cells_tags: MeshTags,
+                plot: bool = False) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag it 1
     Cut facets                => tag it 2
@@ -337,26 +338,29 @@ def _tag_facets(mesh: Mesh,
     # Facets shared by an interior cell and a cut cell
     interior_boundary_facets = np.intersect1d(c2f_map[interior_cells],
                                               c2f_map[cut_cells])
-    # Facets shared by an exterior cell and a cut cell
-    exterior_boundary_facets = np.intersect1d(c2f_map[exterior_cells],
-                                              c2f_map[cut_cells])
-    # Boundary facets ∂Ω_h
-    real_boundary_facets = np.intersect1d(c2f_map[cut_cells], 
-                                          dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[1]).astype(bool)))
-    boundary_facets = np.union1d(exterior_boundary_facets, real_boundary_facets)
+
+    # If there is no exterior_cells, the boundary facets are juste the facets on the boundary of Ω_h
+    if len(exterior_cells) == 0:
+        boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[1]).astype(bool))
+    else:
+        # Facets shared by an exterior cell and a cut cell
+        boundary_facets = np.intersect1d(c2f_map[exterior_cells],
+                                         c2f_map[cut_cells])
 
     # Cut facets F_h^Γ
-    facets_to_remove = np.union1d(np.union1d(exterior_boundary_facets, boundary_facets), interior_boundary_facets)
+    facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
     cut_facets = np.setdiff1d(c2f_map[cut_cells],
                               facets_to_remove)
 
     # Interior facets 
     interior_facets = np.setdiff1d(c2f_map[interior_cells],
-                                   interior_boundary_facets)
+                                   np.union1d(interior_boundary_facets, boundary_facets))
+
     # Exterior facets 
     exterior_facets = np.setdiff1d(c2f_map[exterior_cells],
-                                   exterior_boundary_facets)
+                                   np.union1d(interior_boundary_facets, boundary_facets))
     
+    # Only exterior_facets might be empty
     if len(interior_facets) == 0:
         raise ValueError("No interior facets (1)!")
     if len(cut_facets) == 0:
@@ -364,6 +368,13 @@ def _tag_facets(mesh: Mesh,
     if len(boundary_facets) == 0:
         raise ValueError("No boundary facets (4)!")
     
+    # The lists must not intersect
+    names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
+    for i, facets_list_1 in enumerate([interior_facets, cut_facets, boundary_facets]):
+        for j, facets_list_2 in enumerate([interior_facets, cut_facets, boundary_facets]):
+            if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
+                raise ValueError(names[i] + " and " + names[j] + " have a non-empty intersection!")
+
     # Create the meshtags from the indices.
     indices = np.hstack([exterior_facets,
                          interior_facets,

@@ -20,17 +20,20 @@ data_1 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 
 data_2 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 1)
 data_3 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 2)
 data_4 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 3)
+
 data_5 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", -1)
 data_6 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 1)
 data_7 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 2)
 data_8 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 3)
-# data_9 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", -1)
-# data_10 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 1)
-# data_11 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 2)
-# data_12 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 3)
 
-testdata = [data_1, data_2, data_3, data_4,
-            data_5, data_6, data_7, data_8]
+data_9 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", -1)
+data_10 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 1)
+data_11 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 2)
+data_12 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 3)
+
+testdata = [data_1, data_2,  data_3,  data_4,
+            data_5, data_6,  data_7,  data_8,
+            data_9, data_10, data_11, data_12]
 
 
 def integrand(n):
@@ -119,18 +122,13 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
     indices = np.hstack([facets, comp_facets])
     sorted_indices = np.argsort(indices)
     facets_markers = np.ones_like(facets).astype(np.int32)
-    comp_markers = -np.ones_like(comp_facets).astype(np.int32)
+    comp_markers = 2 * np.ones_like(comp_facets).astype(np.int32)
     markers = np.hstack([facets_markers, comp_markers])
     facets_tags_out = dfx.mesh.meshtags(submesh_out,
                                         fdim,
                                         indices[sorted_indices],
                                         markers[sorted_indices])
-    if plot:
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(submesh_out, facets_tags_out, ax, expression_levelset=levelset)
-        plt.savefig("facets_tags_out.png", dpi=500, bbox_inches="tight")
-
+    
     ds = ufl.Measure("ds", domain=submesh_out, subdomain_data=facets_tags_out)
 
     n = ufl.FacetNormal(submesh_out)
