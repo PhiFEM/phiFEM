@@ -7,17 +7,17 @@ X0, Y0 = [0.5, 0.5]
 
 # Lamé coefficients
 def lmbda(E, nu):
-    return E * nu/(1.0+nu)/(1.+2.*nu)
+    return E * nu/(1.0+nu)/(1.-2.*nu)
 def mu(E, nu):
     return E/2.0/(1.0+nu)
 
 # Material parameters inside the disk
-E_in = 10.
+E_in = 0.001
 nu_in = 0.3
 lmbda_in = lmbda(E_in, nu_in)
 mu_in = mu(E_in, nu_in)
 # Material parameters outside the disk
-E_out = 0.001
+E_out = 1.0
 nu_out = 0.3
 lmbda_out = lmbda(E_out, nu_out)
 mu_out = mu(E_out, nu_out)

@@ -12,7 +12,7 @@ import ufl
 import yaml
 
 # Import phiFEM modules
-from phiFEM.phifem.mesh_scripts import compute_tags, compute_outward_normal
+from phiFEM.phifem.mesh_scripts import compute_tags_measures
 
 from tags_plot.plot import plot_mesh_tags
 import matplotlib.pyplot as plt
@@ -83,10 +83,11 @@ cell_type = dfx.cpp.mesh.CellType.triangle
 # cell_type = dfx.cpp.mesh.CellType.quadrilateral
 mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, np.asarray(bbox).T, [nx, ny], cell_type)
 
-cells_tags, facets_tags, _ = compute_tags(mesh, levelset, detection_degree, box_mode=True)
+cells_tags, facets_tags, _, d_from_inside, d_from_outside, _ = compute_tags_measures(mesh, levelset, detection_degree, box_mode=True)
 
-fig = plt.figure()
+"""
 ax = fig.subplots()
+fig = plt.figure()
 plot_mesh_tags(mesh, facets_tags, ax, linewidth=0.2)
 plt.savefig("facets_tags.png", dpi=500, bbox_inches="tight")
 
@@ -94,6 +95,7 @@ fig = plt.figure()
 ax = fig.subplots()
 plot_mesh_tags(mesh, cells_tags, ax, linewidth=0.2)
 plt.savefig("cells_tags.png", dpi=500, bbox_inches="tight")
+"""
 
 gdim = mesh.geometry.dim
 cell_name = mesh.topology.cell_name()
@@ -136,7 +138,7 @@ f_h.sub(1).x.array[point_source_dofs] = -1.
 norm_f_h_int = ufl.sqrt(ufl.inner(f_h, f_h)) * ufl.dx
 norm_f_h_form = dfx.fem.form(norm_f_h_int)
 norm_f_h = assemble_scalar(norm_f_h_form)
-f_h /= norm_f_h/0.00001
+f_h /= norm_f_h
 
 phi_h = dfx.fem.Function(levelset_space)
 phi_h.interpolate(levelset)
@@ -181,34 +183,17 @@ u_nbc_out.interpolate(neumann)
 bc_dofs = dfx.fem.locate_dofs_topological(mixed_space.sub(1), gdim - 1, boundary_dbc_facets)
 bc = dfx.fem.dirichletbc(u_dbc_out, bc_dofs)
 
-# Inside domain outward normal and indicator
-interface_outward_n, interface_inward_n = compute_outward_normal(mesh, levelset)
-inside_indicator = dfx.fem.Function(dg0_space)
-inside_indicator.x.petsc_vec.set(0.)
-inside_cells = cells_tags.find(1)
-cut_cells    = cells_tags.find(2)
-disk_cells = np.union1d(inside_cells, cut_cells)
-inside_indicator.x.array[disk_cells] = 1.
-
-boundary_in = ufl.inner(2. * ufl.avg(ufl.dot(y_in, interface_outward_n) * inside_indicator), 2. * ufl.avg(v_in * inside_indicator))
-
-# Outside domain inward normal and indicator
-outside_indicator = dfx.fem.Function(dg0_space)
-outside_indicator.x.petsc_vec.set(0.)
-outside_cells = cells_tags.find(3)
-complement_cells = np.union1d(outside_cells, cut_cells)
-outside_indicator.x.array[complement_cells] = 1.
-
-boundary_out = ufl.inner(2. * ufl.avg(ufl.dot(y_out, interface_inward_n) * outside_indicator), 2. * ufl.avg(v_out * outside_indicator))
+n = ufl.FacetNormal(mesh)
+boundary_in = ufl.inner(ufl.dot(y_in, n), v_in)
+boundary_out = ufl.inner(ufl.dot(y_out, n), v_in)
 
 h_T = ufl.CellDiameter(mesh)
-n = ufl.FacetNormal(mesh)
 
 stiffness_in  = ufl.inner(sigma_in(u_in),   epsilon(v_in))
 stiffness_out = ufl.inner(sigma_out(u_out), epsilon(v_out))
 
 penalization = penalization_coefficient * \
-            ( ufl.inner(y_in + sigma_in(u_in), z_in + sigma_in(v_in)) \
+            ( ufl.inner(y_in + sigma_in(u_in), z_in + sigma_in(v_in)) / 0.001**2 \
             + ufl.inner(y_out + sigma_out(u_out), z_out + sigma_out(v_out)) \
 + h_T**(-2) * ufl.inner(ufl.dot(y_in, ufl.grad(phi_h)) - ufl.dot(y_out, ufl.grad(phi_h)), ufl.dot(z_in, ufl.grad(phi_h)) - ufl.dot(z_out, ufl.grad(phi_h))) \
 + h_T**(-2) * ufl.inner(u_in - u_out + h_T**(-1) * p * phi_h, v_in - v_out + h_T**(-1) * q * phi_h))
@@ -216,10 +201,10 @@ penalization = penalization_coefficient * \
 stabilization_facets_in = stabilization_coefficient * \
                     ufl.avg(h_T) * \
                     ufl.inner(ufl.jump(sigma_in(u_in), n),
-                              ufl.jump(sigma_in(v_in), n))
+                              ufl.jump(sigma_in(v_in), n)) / 0.001**2
 
 stabilization_cells_in = stabilization_coefficient * \
-                    ufl.inner(ufl.div(y_in), ufl.div(z_in))
+                    ufl.inner(ufl.div(y_in), ufl.div(z_in)) / 0.001**2
 
 stabilization_cells_out = stabilization_coefficient * \
                     ufl.inner(ufl.div(y_out), ufl.div(z_out))
@@ -231,17 +216,25 @@ stabilization_facets_out = stabilization_coefficient * \
 
 a =  stiffness_in             * (dx(1) + dx(2)) \
    + stiffness_out            * (dx(2) + dx(3)) \
-   + boundary_in              * dS(4) \
-   + boundary_out             * dS(3) \
    + penalization             * dx(2) \
    + stabilization_facets_in  * dS(3) \
    + stabilization_facets_out * dS(4) \
    + stabilization_cells_in   * dx(2) \
    + stabilization_cells_out  * dx(2)
 
+boundary_in_int  = boundary_in  * d_from_inside
+boundary_out_int = boundary_out * d_from_outside
+
 bilinear_form = dfx.fem.form(a)
-A = assemble_matrix(bilinear_form, bcs=[bc])
-A.assemble()
+bdy_in_form = dfx.fem.form(boundary_in_int)
+bdy_out_form = dfx.fem.form(boundary_out_int)
+A_temp    = assemble_matrix(bilinear_form, bcs=[bc])
+A_bdy_in  = assemble_matrix(bdy_in_form,   bcs=[bc])
+A_bdy_out = assemble_matrix(bdy_out_form,  bcs=[bc])
+A_temp.assemble()
+A_bdy_in.assemble()
+A_bdy_out.assemble()
+A = A_temp + A_bdy_in + A_bdy_out
 
 ksp = PETSc.KSP().create(mesh.comm)
 ksp.setType("preonly")
@@ -257,7 +250,7 @@ pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
 pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
 stabilization_rhs_in = stabilization_coefficient * \
-                    (ufl.inner(f_h, ufl.div(z_in)))
+                    (ufl.inner(f_h, ufl.div(z_in))) / 0.001
 stabilization_rhs_out = stabilization_coefficient * \
                     (ufl.inner(f_h, ufl.div(z_out)))
 rhs_in  = ufl.inner(f_h, v_in)
