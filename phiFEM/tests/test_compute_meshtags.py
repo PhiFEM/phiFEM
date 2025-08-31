@@ -29,9 +29,15 @@ data_10 = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 
 data_11 = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
 data_12 = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
 
-testdata = [data_1, data_2,  data_3,  data_4,
-            data_5, data_6,  data_7,  data_8,
-            data_9, data_10, data_11, data_12]
+data_13 = ("square_in_square_-1", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., -1)
+data_14 = ("square_in_square_1", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 1)
+data_15 = ("square_in_square_2", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 2)
+data_16 = ("square_in_square_3", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 3)
+
+testdata = [data_1,  data_2,  data_3,  data_4,
+            data_5,  data_6,  data_7,  data_8,
+            data_9,  data_10, data_11, data_12,
+            data_13, data_14, data_15, data_16]
 
 parent_dir = os.path.dirname(__file__)
 
@@ -102,5 +108,5 @@ def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degr
 
 
 if __name__=="__main__":
-    for test_data in [data_1, data_5, data_9]:
+    for test_data in [data_1, data_5, data_9, data_13, data_14, data_15, data_16]:
         test_compute_meshtags(test_data[0], test_data[1], test_data[2], test_data[3], save_as_benchmark=True)
