@@ -17,9 +17,9 @@ PathStr = PathLike[str] | str
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
 def _one_sided_edge_measure(mesh:               Mesh,
-                             cut_cells:          list[int],
-                             integration_facets: list[int],
-                             ind: int):
+                            cut_cells:          list[int],
+                            integration_facets: list[int],
+                            ind:                int):
     """ Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
 
     Args:
@@ -32,6 +32,7 @@ def _one_sided_edge_measure(mesh:               Mesh,
     """
     cdim = mesh.topology.dim
     fdim = cdim - 1
+    mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
     f2c_map = _reshape_facets_map(f2c_connect)
@@ -41,13 +42,27 @@ def _one_sided_edge_measure(mesh:               Mesh,
     num_facets_per_cell = len(c2f_connect.links(0))
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
+    # We select the cut cells among the connected cells
     mask = np.isin(connected_cells, cut_cells)
-    mask[mask[:, 0] == mask[:, 1]] = [True, False]
     right_side_cells = np.reshape(connected_cells[mask], (connected_cells.shape[0],1))
 
-    facets_local_indices = np.nonzero(np.isin(c2f_map[right_side_cells].reshape(right_side_cells.shape[0], num_facets_per_cell), integration_facets))[1]
-    integration_entities = np.ravel(np.column_stack((right_side_cells, facets_local_indices))).astype(np.int32)
+    # Removing duplicate cells while preserving the ordering
+    right_side_cells = right_side_cells[np.sort(np.unique(right_side_cells, return_index=True)[1])]
 
+    # We compute the local indices of the integration facets connected to the cells
+    facets_mask = np.isin(c2f_map[right_side_cells].reshape(right_side_cells.shape[0], num_facets_per_cell), integration_facets)
+    local_indices = np.tile(np.arange(num_facets_per_cell), (facets_mask.shape[0],1))
+    local_indices[np.logical_not(facets_mask)] = -1
+
+    # We repeat the cells indices if a cell has several facets in the integration_facets
+    num_rep = (local_indices >= 0).astype(np.int32).sum(axis=1)
+    right_side_cells_rep = np.repeat(right_side_cells, num_rep)
+    local_indices = local_indices[np.where(local_indices != -1)]
+
+    # We ravel the cells (global) indices and facets (local) indices in order to obtain something like: [cell_1, facet_1, cell_1, facet_2, cell_2, facet_1, cell_3, facet_1]
+    integration_entities = np.ravel(np.column_stack((right_side_cells_rep, local_indices))).astype(np.int32)
+
+    # We compute the one-sided measure
     measure = ufl.Measure("ds", domain=mesh, subdomain_data=[(ind, integration_entities)])
     return measure(ind)
 
@@ -164,6 +179,7 @@ def _transfer_cells_tags(source_mesh_cells_tags: MeshTags,
                                         cdim,
                                         dest_cells_indices[sorted_indices],
                                         dest_cells_markers[sorted_indices])
+
     return dest_cells_tags
 
 def _tag_cells(mesh: Mesh,
@@ -275,7 +291,6 @@ def _tag_cells(mesh: Mesh,
             neighbor_cells = f2c_map[c2f_map[cut_indices]]
             detection_measure_subdomain = neighbor_cells
 
-    
     exterior_indices = np.where(cells_detection_vec == 1.)[0]
     interior_indices = np.where(cells_detection_vec == -1.)[0]
     
@@ -304,8 +319,8 @@ def _tag_cells(mesh: Mesh,
     return cells_tags
 
 def _tag_facets(mesh: Mesh,
-               cells_tags: MeshTags,
-               plot: bool = False) -> MeshTags:
+                cells_tags: MeshTags,
+                plot: bool = False) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag it 1
     Cut facets                => tag it 2
@@ -337,27 +352,29 @@ def _tag_facets(mesh: Mesh,
     # Facets shared by an interior cell and a cut cell
     interior_boundary_facets = np.intersect1d(c2f_map[interior_cells],
                                               c2f_map[cut_cells])
-    # Facets shared by an exterior cell and a cut cell
-    exterior_boundary_facets = np.intersect1d(c2f_map[exterior_cells],
-                                              c2f_map[cut_cells])
 
-    # Boundary facets ∂Ω_h
-    real_boundary_facets = np.intersect1d(c2f_map[cut_cells], 
-                                          dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[1]).astype(bool)))
-    boundary_facets = np.union1d(exterior_boundary_facets, real_boundary_facets)
+    # If there is no exterior_cells, the boundary facets are juste the facets on the boundary of Ω_h
+    if len(exterior_cells) == 0:
+        boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[1]).astype(bool))
+    else:
+        # Facets shared by an exterior cell and a cut cell
+        boundary_facets = np.intersect1d(c2f_map[exterior_cells],
+                                         c2f_map[cut_cells])
 
     # Cut facets F_h^Γ
-    facets_to_remove = np.union1d(np.union1d(exterior_boundary_facets, boundary_facets), interior_boundary_facets)
+    facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
     cut_facets = np.setdiff1d(c2f_map[cut_cells],
                               facets_to_remove)
 
     # Interior facets 
     interior_facets = np.setdiff1d(c2f_map[interior_cells],
-                                   interior_boundary_facets)
+                                   np.union1d(interior_boundary_facets, boundary_facets))
+
     # Exterior facets 
     exterior_facets = np.setdiff1d(c2f_map[exterior_cells],
-                                   exterior_boundary_facets)
+                                   np.union1d(interior_boundary_facets, boundary_facets))
     
+    # Only exterior_facets might be empty
     if len(interior_facets) == 0:
         raise ValueError("No interior facets (1)!")
     if len(cut_facets) == 0:
@@ -365,6 +382,13 @@ def _tag_facets(mesh: Mesh,
     if len(boundary_facets) == 0:
         raise ValueError("No boundary facets (4)!")
     
+    # The lists must not intersect
+    names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
+    for i, facets_list_1 in enumerate([interior_facets, cut_facets, boundary_facets]):
+        for j, facets_list_2 in enumerate([interior_facets, cut_facets, boundary_facets]):
+            if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
+                raise ValueError(names[i] + " and " + names[j] + " have a non-empty intersection!")
+
     # Create the meshtags from the indices.
     indices = np.hstack([exterior_facets,
                          interior_facets,
@@ -416,6 +440,7 @@ def compute_tags_measures(mesh: Mesh,
         facets_tags = _tag_facets(mesh, cells_tags)
         d_boundary_outside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(4), 100)
         d_boundary_inside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(3), 101)
+        submesh_maps = None
     else:
         # We create the submesh
         omega_h_cells = np.unique(np.hstack([cells_tags.find(1),
@@ -426,10 +451,11 @@ def compute_tags_measures(mesh: Mesh,
 
         cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
         facets_tags = _tag_facets(submesh, cells_tags)
-        d_boundary_outside = None
-        d_boundary_inside  = None
+        d_boundary_outside  = None
+        d_boundary_inside   = None
+        submesh_maps = [c_map, v_map, n_map]
 
-    return cells_tags, facets_tags, submesh, d_boundary_outside, d_boundary_inside
+    return cells_tags, facets_tags, submesh, d_boundary_outside, d_boundary_inside, submesh_maps
 
 
 def compute_levelset_boundary_error(mesh: Mesh,
