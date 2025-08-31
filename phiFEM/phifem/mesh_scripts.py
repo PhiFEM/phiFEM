@@ -336,8 +336,11 @@ def _tag_facets(mesh: Mesh,
     exterior_cells = cells_tags.find(3)
     
     # Facets shared by an interior cell and a cut cell
+    boundary_facets_no_cut = np.intersect1d(c2f_map[interior_cells],
+                                            c2f_map[exterior_cells])
     interior_boundary_facets = np.intersect1d(c2f_map[interior_cells],
                                               c2f_map[cut_cells])
+    interior_boundary_facets = np.union1d(interior_boundary_facets, boundary_facets_no_cut)
 
     # If there is no exterior_cells, the boundary facets are juste the facets on the boundary of Ω_h
     if len(exterior_cells) == 0:
@@ -346,6 +349,7 @@ def _tag_facets(mesh: Mesh,
         # Facets shared by an exterior cell and a cut cell
         boundary_facets = np.intersect1d(c2f_map[exterior_cells],
                                          c2f_map[cut_cells])
+        boundary_facets = np.union1d(boundary_facets, boundary_facets_no_cut)
 
     # Cut facets F_h^Γ
     facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
