@@ -44,7 +44,7 @@ def _one_sided_edge_measure(mesh:               Mesh,
 
     # We select the cut cells among the connected cells
     mask = np.isin(connected_cells, integration_cells)
-    right_side_cells = np.reshape(connected_cells[mask], (connected_cells.shape[0],1))
+    right_side_cells = np.reshape(connected_cells[mask], (connected_cells[mask].shape[0],1))
 
     # Removing duplicate cells while preserving the ordering
     right_side_cells = right_side_cells[np.sort(np.unique(right_side_cells, return_index=True)[1])]
