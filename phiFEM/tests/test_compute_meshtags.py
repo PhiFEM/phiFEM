@@ -34,16 +34,23 @@ data_14 = ("square_in_square_1", "square", lambda x: np.maximum(np.abs(x[0]), np
 data_15 = ("square_in_square_2", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 2)
 data_16 = ("square_in_square_3", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 3)
 
+data_17 = ("ellipse_in_square_-1", "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, -1)
+data_18 = ("ellipse_in_square_1",  "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, 1)
+data_19 = ("ellipse_in_square_2",  "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, 2)
+data_20 = ("ellipse_in_square_3",  "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, 3)
+
+
 testdata = [data_1,  data_2,  data_3,  data_4,
             data_5,  data_6,  data_7,  data_8,
             data_9,  data_10, data_11, data_12,
-            data_13, data_14, data_15, data_16]
+            data_13, data_14, data_15, data_16,
+            data_17, data_18, data_19, data_20]
 
 parent_dir = os.path.dirname(__file__)
 
 @pytest.mark.parametrize("data_name, mesh_name, levelset, discrete_levelset_degree", testdata)
 def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degree, save_as_benchmark=False):
-    mesh_path = os.path.join(parent_dir, "tests_data", "disk" + ".xdmf")
+    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
 
     if not os.path.isfile(mesh_path):
         print(f"{mesh_path} not found, we create it.")
@@ -77,19 +84,18 @@ def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degr
         cells_benchmark = np.vstack([cells_tags.indices, cells_tags.values])
         np.savetxt(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.csv"), cells_benchmark, delimiter=" ", newline="\n")
 
-        if mesh.topology.cell_name() == "triangle":
-            fig = plt.figure()
-            ax = fig.subplots()
-            plot_mesh_tags(mesh, cells_tags, ax, expression_levelset=levelset)
-            plt.savefig(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.png"), dpi=500, bbox_inches="tight")
-            fig = plt.figure()
-            ax = fig.subplots()
-            plot_mesh_tags(mesh, facets_tags, ax, expression_levelset=levelset, linewidth=1.5)
-            plt.savefig(os.path.join(parent_dir, "tests_data", data_name + "_facets_tags.png"), dpi=500, bbox_inches="tight")
-
         facets_benchmark = np.vstack([facets_tags.indices, facets_tags.values])
         np.savetxt(os.path.join(parent_dir, "tests_data", data_name + "_facets_tags.csv"), facets_benchmark, delimiter=" ", newline="\n")
 
+        # For visualization purpose only
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(mesh, cells_tags, ax, expression_levelset=levelset)
+        plt.savefig(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.png"), dpi=500, bbox_inches="tight")
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(mesh, facets_tags, ax, linewidth=1.5)
+        plt.savefig(os.path.join(parent_dir, "tests_data", data_name + "_facets_tags.png"), dpi=500, bbox_inches="tight")
     else:
         try:
             cells_benchmark = np.loadtxt(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.csv"), delimiter=" ")
@@ -108,5 +114,5 @@ def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degr
 
 
 if __name__=="__main__":
-    for test_data in [data_1, data_5, data_9, data_13, data_14, data_15, data_16]:
+    for test_data in [data_1, data_5, data_9, data_13, data_14, data_15, data_16, data_17, data_18, data_19, data_20]:
         test_compute_meshtags(test_data[0], test_data[1], test_data[2], test_data[3], save_as_benchmark=True)
