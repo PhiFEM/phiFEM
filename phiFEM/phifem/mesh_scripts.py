@@ -313,6 +313,7 @@ def _tag_facets(mesh: Mesh,
     Interior boundary facets  => tag it 3
     Boundary facets (Gamma_h) => tag it 4
     Strictly exterior facets  => tag it 5
+    Direct interface facets   => tag it 6
 
     Args:
         mesh: the background mesh.
@@ -336,31 +337,36 @@ def _tag_facets(mesh: Mesh,
     exterior_cells = cells_tags.find(3)
     
     # Facets shared by an interior cell and a cut cell
-    exterior_cut_cells = np.union1d(exterior_cells, cut_cells)
     interior_boundary_facets = np.intersect1d(c2f_map[interior_cells],
-                                              c2f_map[exterior_cut_cells])
+                                              c2f_map[cut_cells])
 
     # If there is no exterior_cells, the boundary facets are juste the facets on the boundary of Ω_h
     if len(exterior_cells) == 0:
         boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[1]).astype(bool))
     else:
-        interior_cut_cells = np.union1d(interior_cells, cut_cells)
         # Facets shared by an exterior cell and a cut cell
         boundary_facets = np.intersect1d(c2f_map[exterior_cells],
-                                         c2f_map[interior_cut_cells])
+                                         c2f_map[cut_cells])
 
+    direct_interface_facets = np.intersect1d(c2f_map[exterior_cells],
+                                             c2f_map[interior_cells])
     # Cut facets F_h^Γ
     facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     cut_facets = np.setdiff1d(c2f_map[cut_cells],
                               facets_to_remove)
 
-    # Interior facets 
+    # Interior facets
+    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     interior_facets = np.setdiff1d(c2f_map[interior_cells],
-                                   np.union1d(interior_boundary_facets, boundary_facets))
+                                   facets_to_remove)
 
-    # Exterior facets 
+    # Exterior facets
+    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     exterior_facets = np.setdiff1d(c2f_map[exterior_cells],
-                                   np.union1d(interior_boundary_facets, boundary_facets))
+                                   facets_to_remove)
     
     # Only exterior_facets might be empty
     if len(interior_facets) == 0:
@@ -382,17 +388,20 @@ def _tag_facets(mesh: Mesh,
                          interior_facets,
                          interior_boundary_facets,
                          cut_facets,
-                         boundary_facets]).astype(np.int32)
+                         boundary_facets,
+                         direct_interface_facets]).astype(np.int32)
     interior_marker          = np.full_like(interior_facets, 1).astype(np.int32)
     cut_marker               = np.full_like(cut_facets,      2).astype(np.int32)
     interior_boundary_marker = np.full_like(interior_boundary_facets, 3).astype(np.int32)
     boundary_marker          = np.full_like(boundary_facets, 4).astype(np.int32)
     exterior_marker          = np.full_like(exterior_facets, 5).astype(np.int32)
+    direct_interface_marker  = np.full_like(direct_interface_facets, 6).astype(np.int32)
     markers = np.hstack([exterior_marker,
                          interior_marker,
                          interior_boundary_marker,
                          cut_marker,
-                         boundary_marker]).astype(np.int32)
+                         boundary_marker,
+                         direct_interface_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
 
     facets_tags = dfx.mesh.meshtags(mesh,
