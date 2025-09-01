@@ -185,6 +185,11 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
                                         indices[sorted_indices],
                                         markers[sorted_indices])
     
+    fig = plt.figure()
+    ax = fig.subplots()
+    plot_mesh_tags(submesh_out, facets_tags_out, ax, expression_levelset=levelset)
+    plt.savefig("benchmark_facets_out.png", dpi=500, bbox_inches="tight")
+
     ds = ufl.Measure("ds", domain=submesh_out, subdomain_data=facets_tags_out)
 
     n = ufl.FacetNormal(submesh_out)
@@ -194,5 +199,5 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
     assert val_test_mesh_out == benchmark_submesh_out, f"val_test = {val_test_mesh_out}; val_benchmark = {benchmark_submesh_out}; One-sided integral from outside."
 
 if __name__=="__main__":
-    test_data = data_5
-    test_one_sided_integral(test_data[0], test_data[1], test_data[2], test_data[3], test_data[4], test_data[5], plot=False)
+    test_data = data_9
+    test_one_sided_integral(test_data[0], test_data[1], test_data[2], test_data[3], test_data[4], test_data[5], plot=True)
