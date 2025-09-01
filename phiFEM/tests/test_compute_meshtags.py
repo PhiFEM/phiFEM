@@ -14,20 +14,20 @@ import matplotlib.pyplot as plt
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
 """
-data_1 = ("circle_in_circle", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, -1)
-data_2 = ("circle_in_circle", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 1)
-data_3 = ("circle_in_circle", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
-data_4 = ("circle_in_circle", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
+data_1 = ("circle_in_circle_-1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, -1)
+data_2 = ("circle_in_circle_1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 1)
+data_3 = ("circle_in_circle_2", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
+data_4 = ("circle_in_circle_3", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
 
-data_5 = ("boundary_crossing_circle", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, -1)
-data_6 = ("boundary_crossing_circle", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 1)
-data_7 = ("boundary_crossing_circle", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 2)
-data_8 = ("boundary_crossing_circle", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 3)
+data_5 = ("boundary_crossing_circle_-1", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, -1)
+data_6 = ("boundary_crossing_circle_1", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 1)
+data_7 = ("boundary_crossing_circle_2", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 2)
+data_8 = ("boundary_crossing_circle_3", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 3)
 
-data_9  = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, -1)
-data_10 = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 1)
-data_11 = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
-data_12 = ("circle_in_square", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
+data_9  = ("circle_in_square_-1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, -1)
+data_10 = ("circle_in_square_1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 1)
+data_11 = ("circle_in_square_2", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
+data_12 = ("circle_in_square_3", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
 
 data_13 = ("square_in_square_-1", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., -1)
 data_14 = ("square_in_square_1", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 1)
@@ -114,5 +114,5 @@ def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degr
 
 
 if __name__=="__main__":
-    for test_data in [data_1, data_5, data_9, data_13, data_14, data_15, data_16, data_17, data_18, data_19, data_20]:
+    for test_data in testdata:
         test_compute_meshtags(test_data[0], test_data[1], test_data[2], test_data[3], save_as_benchmark=True)
