@@ -17,14 +17,14 @@ PathStr = PathLike[str] | str
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
 def _one_sided_edge_measure(mesh:               Mesh,
-                            cut_cells:          list[int],
+                            integration_cells:  list[int],
                             integration_facets: list[int],
                             ind:                int):
     """ Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
 
     Args:
         mesh: the mesh on which we compute the measure.
-        cut_cells: list of cells indices from which the integral is computed.
+        integration_cells: list of cells indices from which the integral is computed.
         integration_facets: list of facets indices on which the integral is computed.
         ind: index used in the measure.
     Returns:
@@ -43,8 +43,8 @@ def _one_sided_edge_measure(mesh:               Mesh,
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
     # We select the cut cells among the connected cells
-    mask = np.isin(connected_cells, cut_cells)
-    right_side_cells = np.reshape(connected_cells[mask], (connected_cells.shape[0],1))
+    mask = np.isin(connected_cells, integration_cells)
+    right_side_cells = np.reshape(connected_cells[mask], (connected_cells[mask].shape[0],1))
 
     # Removing duplicate cells while preserving the ordering
     right_side_cells = right_side_cells[np.sort(np.unique(right_side_cells, return_index=True)[1])]
@@ -283,7 +283,7 @@ def _tag_cells(mesh: Mesh,
     if len(interior_indices) == 0:
         raise ValueError("No interior cells (1)!")
     if len(cut_indices) == 0:
-        raise ValueError("No cut cells (2)!")
+        print("WARNING: no cut cells computed in the partition.")
 
     # Create the meshtags from the indices.
     indices = np.hstack([exterior_indices,
@@ -313,6 +313,7 @@ def _tag_facets(mesh: Mesh,
     Interior boundary facets  => tag it 3
     Boundary facets (Gamma_h) => tag it 4
     Strictly exterior facets  => tag it 5
+    Direct interface facets   => tag it 6
 
     Args:
         mesh: the background mesh.
@@ -351,24 +352,31 @@ def _tag_facets(mesh: Mesh,
                                          c2f_map[cut_cells])
         boundary_facets = np.union1d(boundary_facets, boundary_facets_no_cut)
 
+    direct_interface_facets = np.intersect1d(c2f_map[exterior_cells],
+                                             c2f_map[interior_cells])
     # Cut facets F_h^Γ
     facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     cut_facets = np.setdiff1d(c2f_map[cut_cells],
                               facets_to_remove)
 
-    # Interior facets 
+    # Interior facets
+    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     interior_facets = np.setdiff1d(c2f_map[interior_cells],
-                                   np.union1d(interior_boundary_facets, boundary_facets))
+                                   facets_to_remove)
 
-    # Exterior facets 
+    # Exterior facets
+    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     exterior_facets = np.setdiff1d(c2f_map[exterior_cells],
-                                   np.union1d(interior_boundary_facets, boundary_facets))
+                                   facets_to_remove)
     
     # Only exterior_facets might be empty
     if len(interior_facets) == 0:
         raise ValueError("No interior facets (1)!")
     if len(cut_facets) == 0:
-        raise ValueError("No cut facets (2)!")
+        print("WARNING: no cut facet computed in the partition.")
     if len(boundary_facets) == 0:
         raise ValueError("No boundary facets (4)!")
     
@@ -384,17 +392,20 @@ def _tag_facets(mesh: Mesh,
                          interior_facets,
                          interior_boundary_facets,
                          cut_facets,
-                         boundary_facets]).astype(np.int32)
+                         boundary_facets,
+                         direct_interface_facets]).astype(np.int32)
     interior_marker          = np.full_like(interior_facets, 1).astype(np.int32)
     cut_marker               = np.full_like(cut_facets,      2).astype(np.int32)
     interior_boundary_marker = np.full_like(interior_boundary_facets, 3).astype(np.int32)
     boundary_marker          = np.full_like(boundary_facets, 4).astype(np.int32)
     exterior_marker          = np.full_like(exterior_facets, 5).astype(np.int32)
+    direct_interface_marker  = np.full_like(direct_interface_facets, 6).astype(np.int32)
     markers = np.hstack([exterior_marker,
                          interior_marker,
                          interior_boundary_marker,
                          cut_marker,
-                         boundary_marker]).astype(np.int32)
+                         boundary_marker,
+                         direct_interface_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
 
     facets_tags = dfx.mesh.meshtags(mesh,
@@ -428,8 +439,10 @@ def compute_tags_measures(mesh: Mesh,
     if box_mode:
         submesh = mesh
         facets_tags = _tag_facets(mesh, cells_tags)
-        d_boundary_outside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(4), 100)
-        d_boundary_inside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(3), 101)
+        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
+        d_boundary_outside = _one_sided_edge_measure(mesh, integration_cells, facets_tags.find(4), 100)
+        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
+        d_boundary_inside = _one_sided_edge_measure(mesh, integration_cells, facets_tags.find(3), 101)
         submesh_maps = None
     else:
         # We create the submesh
