@@ -53,7 +53,7 @@ def save_function(fct, file_name):
             of.write_mesh(mesh)
             of.write_function(fct)
 
-from data import levelset_1, levelset_2, sigma_in, sigma_out, epsilon
+from data import levelset_1, levelset_2, levelset_3, sigma_in, sigma_out, epsilon
 
 with open(parameters_path, "rb") as f:
     parameters = yaml.safe_load(f)
@@ -85,8 +85,15 @@ elif levelset_number == 2:
         print("detection_levelset_2 not found in data, use levelset instead.")
         detection_levelset = levelset_2
     levelset = levelset_2
+elif levelset_number == 3:
+    try:
+        from data import detection_levelset_3
+    except ImportError:
+        print("detection_levelset_3 not found in data, use levelset instead.")
+        detection_levelset = levelset_3
+    levelset = levelset_3
 else:
-    raise ValueError("Parameter error levelset_number can only be 1 or 2.")
+    raise ValueError("Parameter error levelset_number can only be 1, 2 or 3.")
 
 # Create the background mesh
 nx = int(np.abs(bbox[0][1] - bbox[0][0]) / mesh_size)

@@ -32,3 +32,7 @@ def levelset_1(x):
 
 def levelset_2(x):
     return 1. - ((x[0])**2 + (x[1])**2)
+
+def levelset_3(x):
+    p = 1.8
+    return 1.1 - (np.abs(x[0] + 0.05)**p + np.abs(x[1] + 0.05)**p)**(1/p)
