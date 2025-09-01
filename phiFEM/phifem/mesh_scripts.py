@@ -16,15 +16,51 @@ PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
+def _reference_triangle_boundary_points(N):
+    if N>0:
+        t1 = np.linspace(0, 1, N+1)
+        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
+        t2 = t1[1:]
+        edge2 = np.stack((1 - t2, t2), axis=-1).astype(np.float64)
+        t3 = t1[1:-1]
+        edge3 = np.stack((np.zeros_like(t3), 1 - t3), axis=-1).astype(np.float64)
+
+        if N>1:
+            points = np.concatenate((edge1, edge2, edge3), axis=0)
+        else:
+            points = np.concatenate((edge1, edge2), axis=0)
+    else:
+        points = np.array([[1./3., 1./3.]]).astype(np.float64)
+    return points
+
+def _reference_square_boundary_points(N):
+    if N>0:
+        t1 = np.linspace(0, 1, N+1)
+        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
+        t2 = t1[1:]
+        edge2 = np.stack((np.ones_like(t2), t2), axis=-1).astype(np.float64)
+        t3 = t1[1:]
+        edge3 = np.stack((1. - t3, np.ones_like(t3)), axis=-1).astype(np.float64)
+        t4 = t1[1:-1]
+        edge4 = np.stack((np.zeros_like(t4), 1. - t4), axis=-1).astype(np.float64)
+
+        if N>1:
+            points = np.concatenate((edge1, edge2, edge3, edge4), axis=0)
+        else:
+            points = np.concatenate((edge1, edge2, edge3), axis=0)
+    else:
+        points = np.array([[1./2., 1./2.]]).astype(np.float64)
+    return points
+
 def _one_sided_edge_measure(mesh:               Mesh,
-                            cut_cells:          list[int],
+                            integration_cells:  list[int],
                             integration_facets: list[int],
                             ind:                int):
     """ Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
 
     Args:
         mesh: the mesh on which we compute the measure.
-        cut_cells: list of cells indices from which the integral is computed.
+        integration_cells: list of cells indices from which the integral is computed.
         integration_facets: list of facets indices on which the integral is computed.
         ind: index used in the measure.
     Returns:
@@ -43,8 +79,8 @@ def _one_sided_edge_measure(mesh:               Mesh,
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
     # We select the cut cells among the connected cells
-    mask = np.isin(connected_cells, cut_cells)
-    right_side_cells = np.reshape(connected_cells[mask], (connected_cells.shape[0],1))
+    mask = np.isin(connected_cells, integration_cells)
+    right_side_cells = np.reshape(connected_cells[mask], (connected_cells[mask].shape[0],1))
 
     # Removing duplicate cells while preserving the ordering
     right_side_cells = right_side_cells[np.sort(np.unique(right_side_cells, return_index=True)[1])]
@@ -197,114 +233,77 @@ def _tag_cells(mesh: Mesh,
     Returns:
         The cells tags as a MeshTags object.
     """
+    # Create the custom quadrature rule.
+    # The quadrature points are evenly spaced on the boundary of the reference cell.
+    # The weights are 1.
+    cell_type = mesh.topology.cell_type.name
 
-    cdim = mesh.topology.dim
-    detection_measure_subdomain = np.arange(mesh.topology.index_map(cdim).size_global)
-    if detection_degree > 1:
-        fdim = cdim - 1
-        mesh.topology.create_connectivity(cdim, fdim)
-        mesh.topology.create_connectivity(fdim, cdim)
-        c2f_connect = mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        f2c_connect = mesh.topology.connectivity(fdim, cdim)
-        f2c_map = _reshape_facets_map(f2c_connect)
-        detection_degrees = [1, detection_degree]
+    if cell_type == "triangle":
+        points = _reference_triangle_boundary_points(detection_degree)
+    elif cell_type == "quadrilateral":
+        points = _reference_square_boundary_points(detection_degree)
     else:
-        detection_degrees = [detection_degree]
+        raise NotImplementedError("Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'")
+    weights = np.ones_like(points[:,0])
+
+    custom_rule = {"quadrature_rule":    "custom",
+                   "quadrature_points":  points,
+                   "quadrature_weights": weights}
     
-    for degree in detection_degrees:
-        # Create the custom quadrature rule.
-        # The evaluation points are the dofs of the reference cell.
-        # The weights are 1.
-        quadrature_points: npt.NDArray[np.float64]
-        if mesh.topology.cell_name() == "triangle":
-            xs = np.linspace(0., 1., degree + 1)
-            xx, yy = np.meshgrid(xs, xs)
-            x_coords = xx.reshape((1, xx.shape[0] * xx.shape[1]))
-            y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
-            points = np.vstack([x_coords, y_coords])
-            quadrature_points = points[:,points[1,:] <= np.ones_like(points[0,:])-points[0,:]]
-            quadrature_weights = np.ones_like(quadrature_points[0,:])
-            custom_rule = {"quadrature_rule":    "custom",
-                        "quadrature_points":  quadrature_points.T,
-                        "quadrature_weights": quadrature_weights}
-            
-            cells_detection_dx = ufl.Measure("dx",
-                                            domain=mesh,
-                                            subdomain_data=detection_measure_subdomain,
-                                            metadata=custom_rule)  
-        elif mesh.topology.cell_name() == "tetrahedron":
-            xs = np.linspace(0., 1., degree + 1)
-            xx, yy, zz = np.meshgrid(xs, xs, xs)
-            x_coords = xx.reshape((1, xx.shape[0] * xx.shape[1]))
-            y_coords = yy.reshape((1, yy.shape[0] * yy.shape[1]))
-            z_coords = zz.reshape((1, zz.shape[0] * zz.shape[1]))
-            points = np.vstack([x_coords, y_coords, z_coords])
-            quadrature_points = points[:,points[2,:] <= np.ones_like(points[0,:])-points[0,:]-points[1,:]]
-            quadrature_weights = np.ones_like(quadrature_points[0,:])
-            custom_rule = {"quadrature_rule":    "custom",
-                        "quadrature_points":  quadrature_points.T,
-                        "quadrature_weights": quadrature_weights}
-            
-            cells_detection_dx = ufl.Measure("dx",
-                                            domain=mesh,
-                                            subdomain_data=detection_measure_subdomain,
-                                            metadata=custom_rule)  
-        else:
-            cells_detection_dx = ufl.Measure("dx",
-                                             domain=mesh,
-                                             subdomain_data=detection_measure_subdomain)
+    cells_detection_dx = ufl.Measure("dx",
+                                    domain=mesh,
+                                    metadata=custom_rule)  
         
-        detection_element = element("Lagrange", mesh.topology.cell_name(), degree)
-        detection_space = dfx.fem.functionspace(mesh, detection_element)
-        discrete_levelset = dfx.fem.Function(detection_space)
-        discrete_levelset.interpolate(detection_levelset)
-        # We localize at each cell via a DG0 test function.
-        DG0Element = element("DG", mesh.topology.cell_name(), 0)
-        V0 = dfx.fem.functionspace(mesh, DG0Element)
-        v0 = ufl.TestFunction(V0)
+    detection_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
+    detection_space = dfx.fem.functionspace(mesh, detection_element)
+    discrete_levelset = dfx.fem.Function(detection_space)
+    discrete_levelset.interpolate(detection_levelset)
 
-        # Assemble the numerator of detection
-        cells_detection_num = inner(discrete_levelset, v0) * cells_detection_dx
-        cells_detection_num_form = dfx.fem.form(cells_detection_num)
-        cells_detection_num_vec = assemble_vector(cells_detection_num_form)
-        # Assemble the denominator of detection
-        cells_detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * cells_detection_dx
-        cells_detection_denom_form = dfx.fem.form(cells_detection_denom)
-        cells_detection_denom_vec = assemble_vector(cells_detection_denom_form)
+    # We localize at each cell via a DG0 test function.
+    dg_0_element = element("DG", mesh.topology.cell_name(), 0)
+    dg_0_space = dfx.fem.functionspace(mesh, dg_0_element)
+    v0 = ufl.TestFunction(dg_0_space)
 
-        # cells_detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
-        # However, in practice it can happen that for a very small cut triangle, cells_detection_denom_vec is of the order of the machine precision.
-        # In this case, we set the value of cells_detection_vec to 0.5, meaning we consider the cell as cut.
-        mask = np.where(cells_detection_denom_vec.array > 0.)
-        cells_detection_vec = np.full_like(cells_detection_num_vec.array, 0.5)
-        cells_detection_vec[mask] = cells_detection_num_vec.array[mask]/cells_detection_denom_vec.array[mask]
+    # Assemble the numerator of detection
+    cells_detection_num = inner(discrete_levelset, v0) * cells_detection_dx
+    cells_detection_num_form = dfx.fem.form(cells_detection_num)
+    cells_detection_num_vec = assemble_vector(cells_detection_num_form)
+    # Assemble the denominator of detection
+    cells_detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * cells_detection_dx
+    cells_detection_denom_form = dfx.fem.form(cells_detection_denom)
+    cells_detection_denom_vec = assemble_vector(cells_detection_denom_form)
 
-        detection = dfx.fem.Function(V0)
-        detection.x.array[:] = cells_detection_vec
+    # cells_detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
+    # However, in practice it can happen that for a very small cut triangle, cells_detection_denom_vec is of the order of the machine precision.
+    # In this case, we set the value of cells_detection_vec to 0.5, meaning we consider the cell as cut.
+    mask = np.where(cells_detection_denom_vec.array > 0.)
+    cells_detection_vec = np.full_like(cells_detection_num_vec.array, 0.5)
+    cells_detection_vec[mask] = cells_detection_num_vec.array[mask]/cells_detection_denom_vec.array[mask]
 
-        cut_indices = np.where(np.logical_and(cells_detection_vec > -1.,
-                                              cells_detection_vec < 1.))[0]
-        
-        if detection_degree > 1:
-            neighbor_cells = f2c_map[c2f_map[cut_indices]]
-            detection_measure_subdomain = neighbor_cells
+    detection = dfx.fem.Function(dg_0_space)
+    detection.x.array[:] = cells_detection_vec
 
+    cut_indices = np.where(np.logical_and(cells_detection_vec > -1.,
+                                          cells_detection_vec < 1.))[0]
+    
     exterior_indices = np.where(cells_detection_vec == 1.)[0]
     interior_indices = np.where(cells_detection_vec == -1.)[0]
     
     if len(interior_indices) == 0:
         raise ValueError("No interior cells (1)!")
     if len(cut_indices) == 0:
-        raise ValueError("No cut cells (2)!")
+        print("WARNING: no cut cells computed in the partition.")
+
+    assert np.logical_not(np.in1d(exterior_indices, cut_indices).any()), "The sets of outside cells and cut cells have a non-empty intersection"
+    assert np.logical_not(np.in1d(interior_indices, cut_indices).any()), "The sets of inside cells and cut cells have a non-empty intersection"
+    assert np.logical_not(np.in1d(exterior_indices, interior_indices).any()), "The sets of outside cells and inside cells have a non-empty intersection"
 
     # Create the meshtags from the indices.
     indices = np.hstack([exterior_indices,
                          interior_indices,
                          cut_indices]).astype(np.int32)
-    exterior_marker = np.full_like(exterior_indices, 3).astype(np.int32)
     interior_marker = np.full_like(interior_indices, 1).astype(np.int32)
+    exterior_marker = np.full_like(exterior_indices, 3).astype(np.int32)
     cut_marker      = np.full_like(cut_indices,      2).astype(np.int32)
     markers = np.hstack([exterior_marker,
                          interior_marker,
@@ -386,7 +385,7 @@ def _tag_facets(mesh: Mesh,
     if len(interior_facets) == 0:
         raise ValueError("No interior facets (1)!")
     if len(cut_facets) == 0:
-        raise ValueError("No cut facets (2)!")
+        print("WARNING: no cut facet computed in the partition.")
     if len(boundary_facets) == 0:
         raise ValueError("No boundary facets (4)!")
     
@@ -449,8 +448,10 @@ def compute_tags_measures(mesh: Mesh,
     if box_mode:
         submesh = mesh
         facets_tags = _tag_facets(mesh, cells_tags)
-        d_boundary_outside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(4), 100)
-        d_boundary_inside = _one_sided_edge_measure(mesh, cells_tags.find(2), facets_tags.find(3), 101)
+        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
+        d_boundary_outside = _one_sided_edge_measure(mesh, integration_cells, facets_tags.find(4), 100)
+        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
+        d_boundary_inside = _one_sided_edge_measure(mesh, integration_cells, facets_tags.find(3), 101)
         submesh_maps = None
     else:
         # We create the submesh
