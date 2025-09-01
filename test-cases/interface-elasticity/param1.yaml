@@ -10,7 +10,7 @@ primal_degree: 1
 auxiliary_degree: 1
 flux_degree: 1
 levelset_number: 1
-levelset_degree: 3
+levelset_degree: 1
 boundary_detection_degree: 3
 stabilization_coefficient: 1.
 penalization_coefficient: 1.

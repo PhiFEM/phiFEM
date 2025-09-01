@@ -190,8 +190,8 @@ dbc_out = dfx.fem.dirichletbc(u_dbc_out, bc_out_dofs)
 bcs = [dbc_in, dbc_out]
 
 n = ufl.FacetNormal(mesh)
-boundary_in = ufl.inner(ufl.dot(y_in, n), v_in)
-boundary_out = ufl.inner(ufl.dot(y_out, n), v_in)
+boundary_in  = ufl.inner(ufl.dot(y_in,  n), v_in)
+boundary_out = ufl.inner(ufl.dot(y_out, n), v_out)
 
 h_T = ufl.CellDiameter(mesh)
 
@@ -265,8 +265,8 @@ rhs_out = ufl.inner(f_h, v_out)
 
 L = rhs_in                * dx((1,2)) \
   + rhs_out               * dx((2,3)) \
-  - stabilization_rhs_in  * dx(2) \
-  - stabilization_rhs_out * dx(2)
+  + stabilization_rhs_in  * dx(2) \
+  + stabilization_rhs_out * dx(2)
 
 linear_form = dfx.fem.form(L)
 b = assemble_vector(linear_form)
