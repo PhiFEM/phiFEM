@@ -1,15 +1,15 @@
 # ============================
-# Interface elasticity elliptic interface
+# Interface elasticity circular interface
 # ============================
 
 # Mesh parameters
-initial_mesh_size: 0.1
+initial_mesh_size: 0.15
 
 # phiFEM parameters
 primal_degree: 1
 auxiliary_degree: 1
 flux_degree: 1
-levelset_number: 1
+levelset_number: 2
 levelset_degree: 3
 boundary_detection_degree: 3
 stabilization_coefficient: 1.
