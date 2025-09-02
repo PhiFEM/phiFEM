@@ -1,16 +1,23 @@
 # $\varphi$-FEM with FEniCSx
 
-A phi-FEM implementation for Poisson-Dirichlet problems with residual a posteriori error estimation.
+$\varphi$-FEM is an immersed boundary finite element method leveraging levelset functions to avoid the use of any non-standard finite element spaces or non-standard quadrature rules.
+More information about $\varphi$-FEM can be found in the various publications (see e.g. [^1] and [^2]).
+
+This repository aims at providing an implementation of the $\varphi$-FEM in the [FEniCSx](https://fenicsproject.org/) computation platform as well as several demos to illustrate its capabilities.
+
+[^1]: M. DUPREZ and A. LOZINSKI, $\phi$-FEM: A finite element method on domains defined by level-sets, SIAM J. Numer. Anal., 58 (2020), pp. 1008-1028, [https://epubs.siam.org/doi/10.1137/19m1248947](https://epubs.siam.org/doi/10.1137/19m1248947)
+[^2]: S. COTIN, M. DUPREZ, V. LLERAS, A. LOZINSKI, and K. VUILLEMOT, $\phi$-FEM: An efficient simulation tool using simple meshes for problems in structure mechanics and heat transfer, Partition of Unity Methods, (2023), pp. 191-216, [https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0](https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0),
 
 ## Prerequisites
 
 - [Git](https://git-scm.com/)
 - [Docker](https://www.docker.com/)/[podman](https://podman.io/)
 
-The docker image is based on [FEniCSx](https://fenicsproject.org/).
-It contains also some python libraries dependencies.
+The docker image is based on the stable dolfinx image (see [FEniCSx](https://fenicsproject.org/)).
 
-## Build the image:
+## Usage
+
+### Build the image (from the root directory):
 Replace `YOUR_ENGINE_HERE` by `docker`, `podman` or your favorite container engine (the following instructions use Docker/podman UI).
 ```bash
 export CONTAINER_ENGINE="YOUR_ENGINE_HERE"
@@ -18,52 +25,18 @@ cd docker/
 bash build_image.sh
 ```
 
-## Launch the image (from the root directory):
+### Launch the image (from the root directory):
 ```bash
 bash run_image.sh
 ```
 
-## Run an example (inside the container from the root directory):
+### Run an example (inside the container from the root directory):
 ```bash
-cd demo/
+cd demo/weak-dirichlet/flower
 ```
 The `main.py` script have the following parameters:
 ```bash
-python3 main.py TEST_CASE SOLVER
-```
-where
-- `TEST_CASE` is one of the available test cases: `pdt_sines_pyramid`, `pdt_sines_smooth`, `lshaped`, `lshaped_smooth` or `flower`.
-- `SOLVER` defines the FE solver (`str` among `FEM` or `phiFEM`),
-For each test case, the parameters of the $\varphi$-FEM and of the adaptation loop are in `demo/TEST_CASE/parameters.yaml`.
-See a detailed explanation of each parameter below.
-Example:
-```bash
-cd demo/
-python3 main.py pdt_sines_pyramid phiFEM 
-```
-
-Extra parameters are stored in the `TEST_CASE/parameters.yaml` files.
-
-## Details on `parameters.yaml`
-
-- `initial_mesh_size`: the maximum size of the edges of the initial mesh.
-- `iterations_number`: the number of iterations of the adaptive refinement loop.
-- `refinement_method`: the only choices are `uniform`, for uniform refinement or `H10`, for adaptive refinement steered by the $H^1_0$ semi-norm error estimator.
-- `bbox`: the bounding box used to compute the initial background mesh in the $\varphi$-FEM as a $2\times 2$ array, first row: xmin, xmax, second row: ymin, ymax.
-- `exact_error`: if `true` computes a higher order approximation of the exact error. **WARNING: to use it with $\varphi$-FEM you must have run a FEM loop before.**
-- `marking_parameter`: the parameter of the Dörfler marking strategy.
-- `use_fine_space`: if `true`, use the proper space for $u_h = w_h \varphi_h$ i.e. if $w_h$ is of degree $k$ and $\varphi_h$ of degree $l$, then $u_h$ is computed in a finite element space of degree $k+l$. If `false`, $u_h$ is computed in the same finite element space as $\varphi_h$.
-- `box_mode`: if `true` unused cells in the $\varphi$-FEM solver are kept during the refinement loop. If `false` they are successively removed at each refinement step.
-- `finite_element_degree`: the degree of the finite element space for $w_h$.
-- `levelset_degree`: the degree of the finite element space for $\varphi_h$.
-- `boundary_detection_degree`: the degree of the finite element space for $\hat \varphi_h$, the level set used to detect the cells cut by $\Gamma_h$ (increasing this value increases the precision of the boundary of $\Omega$ detection but also increases the computational cost).
-- `quadrature_degree`: the degree of the quadratures performed during the $\varphi$-FEM solves.
-- `stabilization_parameter`: the stabilization coefficient of $\varphi$-FEM, $1$ is a good option.
-- `save_output`: if `true` saves the output of the computations.
-
-## Launch unit tests (inside the container from the root directory):
-```bash
-pytest
+python main.py
 ```
 
 ## License
@@ -73,3 +46,9 @@ pytest
 This program is distributed in the hope that it will be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU Lesser General Public License for more details.
 
 You should have received a copy of the GNU Lesser General Public License along with `PhiFEM/Poisson-Dirichlet-fenicsx`. If not, see [http://www.gnu.org/licenses/](http://www.gnu.org/licenses/).
+
+## Authors (alphabetical)
+
+Raphaël Bulle ([https://rbulle.io](https://rbulle.github.io/))  
+Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))  
+Killian Vuillemot  
