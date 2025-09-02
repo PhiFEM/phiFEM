@@ -9,47 +9,52 @@ import pytest
 import ufl
 
 from phiFEM.phifem.mesh_scripts import compute_tags_measures
-from phiFEM.tests.tests_data.utils import create_disk, create_square, create_square_quad
+from phiFEM.tests.tests_data.utils import create_square_tri, create_square_quad
 from tags_plot.plot import plot_mesh_tags
 import matplotlib.pyplot as plt
 
 """
-Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
+Data_n° = ("Data name", "mesh name", levelset object, levelset discretization degree, "benchmark values", integrand)
 """
-data_1 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", -1)
-data_2 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 1)
-data_3 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 2)
-data_4 = ("Circle radius 1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 3)
+def integrand_1(n):
+    nx = ufl.dot(ufl.as_vector((1, 0)), n)
+    ny = ufl.dot(ufl.as_vector((0, 1)), n)
+    return nx + ny
 
-data_5 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", -1)
-data_6 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 1)
-data_7 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 2)
-data_8 = ("Circle radius 1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, "celltags_1", "facettags_1", 3)
+data_1 = ("line_in_square_quad_-1", "square_quad", lambda x: x[0] + 0.35, -1, [3.0, -3.0], integrand_1)
+data_2 = ("line_in_square_quad_1",  "square_quad", lambda x: x[0] + 0.35, -1, [3.0, -3.0], integrand_1)
+data_3 = ("line_in_square_quad_2",  "square_quad", lambda x: x[0] + 0.35, -1, [3.0, -3.0], integrand_1)
+data_4 = ("line_in_square_quad_3",  "square_quad", lambda x: x[0] + 0.35, -1, [3.0, -3.0], integrand_1)
 
-data_9 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", -1)
-data_10 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 1)
-data_11 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 2)
-data_12 = ("Boundary touching", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, "celltags_2", "facettags_2", 3)
+def integrand_2(n):
+    nx = ufl.dot(ufl.as_vector((1, 0)), n)
+    ny = ufl.dot(ufl.as_vector((0, 1)), n)
+    return ufl.algebra.Abs(nx) + ufl.algebra.Abs(ny)
+
+data_5 = ("square_in_square_quad_-1", "square_quad", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35, -1, [3.2, 2.4], integrand_2)
+data_6 = ("square_in_square_quad_1", "square_quad", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,  1, [3.2, 2.4], integrand_2)
+data_7 = ("square_in_square_quad_2", "square_quad", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,  2, [3.2, 2.4], integrand_2)
+data_8 = ("square_in_square_quad_3", "square_quad", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,  3, [3.2, 2.4], integrand_2)
+
+data_9 = ("square_in_square_tri_-1", "square_tri", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325,  -1, [3.2, 2.4], integrand_2)
+data_10 = ("square_in_square_tri_-1", "square_tri", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325, 1, [3.2, 2.4], integrand_2)
+data_11 = ("square_in_square_tri_-1", "square_tri", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325, 2, [3.2, 2.4], integrand_2)
+data_12 = ("square_in_square_tri_-1", "square_tri", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325, 3, [3.2, 2.4], integrand_2)
 
 testdata = [data_1, data_2,  data_3,  data_4,
             data_5, data_6,  data_7,  data_8,
             data_9, data_10, data_11, data_12]
 
-def integrand(n):
-    return ufl.dot(1.e17 * ufl.as_vector((1, 0)), n)
-
 parent_dir = os.path.dirname(__file__)
 
-@pytest.mark.parametrize("data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree", testdata)
-def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree, save_as_benchmark=False, plot=False):
+@pytest.mark.parametrize("data_name, mesh_name, levelset, discrete_levelset_degree, benchmark_values, integrand", testdata)
+def test_one_sided_integral(data_name, mesh_name, levelset, discrete_levelset_degree, benchmark_values, integrand, plot=False):
     mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
 
     if not os.path.isfile(mesh_path):
         print(f"{mesh_path} not found, we create it.")
-        if mesh_name=="disk":
-            create_disk(mesh_path, 0.1)
-        if mesh_name=="square":
-            create_square(mesh_path, 0.1)
+        if mesh_name=="square_tri":
+            create_square_tri(mesh_path, 0.1)
         if mesh_name=="square_quad":
             create_square_quad(mesh_path, 0.1)
     
@@ -74,38 +79,6 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
 
     cells_tags, facets_tags, _, d_from_inside, d_from_outside, _ = compute_tags_measures(mesh, levelset_test, detection_degree, box_mode=True)
 
-    cells_tags_in, facets_tags_in, submesh_in, _, _, submesh_in_maps = compute_tags_measures(mesh, levelset_test, detection_degree, box_mode=False)
-
-    levelset_test_out_cg = dfx.fem.Function(levelset_test_cg.function_space)
-    levelset_test_out_cg.x.array[:] = -levelset_test_cg.x.array[:]
-    cells_tags_out, facets_tags_out, submesh_out, _, _, submesh_out_maps = compute_tags_measures(mesh, levelset_test_out_cg, detection_degree, box_mode=False)
-
-    if plot:
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(mesh, cells_tags, ax, expression_levelset=levelset)
-        plt.savefig("one_sided_cells_mesh.png", dpi=500, bbox_inches="tight")
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(mesh, facets_tags, ax, expression_levelset=levelset)
-        plt.savefig("one_sided_facets_mesh.png", dpi=500, bbox_inches="tight")
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(submesh_in, cells_tags_in, ax, expression_levelset=levelset)
-        plt.savefig("one_sided_submesh_cells_in.png", dpi=500, bbox_inches="tight")
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(submesh_out, cells_tags_out, ax, expression_levelset=levelset)
-        plt.savefig("one_sided_submesh_cells_out.png", dpi=500, bbox_inches="tight")
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(submesh_in, facets_tags_in, ax, expression_levelset=levelset)
-        plt.savefig("one_sided_submesh_facets_in.png", dpi=500, bbox_inches="tight")
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(submesh_out, facets_tags_out, ax, expression_levelset=levelset)
-        plt.savefig("one_sided_submesh_facets_out.png", dpi=500, bbox_inches="tight")
-
     n = ufl.FacetNormal(mesh)
     test_int_mesh_in = integrand(n) * d_from_inside
     val_test_mesh_in = assemble_scalar(dfx.fem.form(test_int_mesh_in))
@@ -113,86 +86,22 @@ def test_one_sided_integral(data_name, mesh_name, levelset, cells_benchmark_name
     test_int_mesh_out = integrand(n) * d_from_outside
     val_test_mesh_out = assemble_scalar(dfx.fem.form(test_int_mesh_out))
 
-    fdim = submesh_in.topology.dim - 1
-    facets = facets_tags.find(4)
+    if plot:
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(mesh, cells_tags, ax, expression_levelset=levelset, linewidth=0.1)
+        plt.savefig(data_name + "_cells_tags.png", dpi=500, bbox_inches="tight")
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(mesh, facets_tags, ax, expression_levelset=levelset, linewidth=1.5)
+        plt.savefig(data_name + "_facets_tags.png", dpi=500, bbox_inches="tight")
 
-    mesh_f2v_connect = mesh.topology.connectivity(fdim, 0)
-    num_vertices_per_facet = len(mesh_f2v_connect.links(0))
-    mesh_f2v_map = np.reshape(mesh_f2v_connect.array, (-1, num_vertices_per_facet))
+        print(val_test_mesh_in)
+        print(val_test_mesh_out)
 
-    submesh_in_f2v_connect = submesh_in.topology.connectivity(fdim, 0)
-    num_vertices_per_facet = len(submesh_in_f2v_connect.links(0))
-    submesh_in_f2v_map = np.reshape(submesh_in_f2v_connect.array, (-1, num_vertices_per_facet))
-
-    v_map_in = submesh_in_maps[1]
-    vertices_col1 = v_map_in.searchsorted(mesh_f2v_map[facets][:, 0])
-    vertices_col2 = v_map_in.searchsorted(mesh_f2v_map[facets][:, 1])
-
-    facets_parent = np.vstack([vertices_col1, vertices_col2]).T
-    facets_submesh_in = submesh_in_f2v_map[:]
-    facets_indices_in = np.where(np.all(np.isin(facets_submesh_in, facets_parent), axis=1))[0]
-
-    all_boundary_facets = dfx.mesh.locate_entities_boundary(submesh_in, fdim, lambda x: np.ones_like(x[0]).astype(bool))
-    comp_facets = np.setdiff1d(all_boundary_facets, facets_indices_in)
-
-    indices = np.hstack([facets_indices_in, comp_facets])
-    sorted_indices = np.argsort(indices)
-    facets_markers = np.ones_like(facets_indices_in).astype(np.int32)
-    comp_markers = 2 * np.ones_like(comp_facets).astype(np.int32)
-    markers = np.hstack([facets_markers, comp_markers])
-    facets_tags_in = dfx.mesh.meshtags(submesh_in,
-                                       fdim,
-                                       indices[sorted_indices],
-                                       markers[sorted_indices])
-
-    fig = plt.figure()
-    ax = fig.subplots()
-    plot_mesh_tags(submesh_in, facets_tags_in, ax, expression_levelset=levelset, display_indices=True)
-    plt.savefig("benchmark_facets_in.png", dpi=500, bbox_inches="tight")
-
-    ds = ufl.Measure("ds", domain=submesh_in, subdomain_data=facets_tags_in)
-
-    n = ufl.FacetNormal(submesh_in)
-    test_int_submesh_in = integrand(n) * ds(1)
-    benchmark_submesh_in = assemble_scalar(dfx.fem.form(test_int_submesh_in))
-    
-    assert val_test_mesh_in == benchmark_submesh_in, f"val_test = {val_test_mesh_in}; val_benchmark = {benchmark_submesh_in}; One-sided integral from inside."
-
-    facets = facets_tags.find(3)
-
-    submesh_out_f2v_connect = submesh_out.topology.connectivity(fdim, 0)
-    num_vertices_per_facet = len(submesh_out_f2v_connect.links(0))
-    submesh_out_f2v_map = np.reshape(submesh_out_f2v_connect.array, (-1, num_vertices_per_facet))
-
-    v_map_out = submesh_out_maps[1]
-    vertices_col1 = v_map_out.searchsorted(mesh_f2v_map[facets][:, 0])
-    vertices_col2 = v_map_out.searchsorted(mesh_f2v_map[facets][:, 1])
-
-    facets_parent = np.vstack([vertices_col1, vertices_col2]).T
-    facets_submesh_out = submesh_out_f2v_map[:]
-    facets = np.where(np.all(np.isin(facets_submesh_out, facets_parent), axis=1))[0]
-
-    all_boundary_facets = dfx.mesh.locate_entities_boundary(submesh_out, fdim, lambda x: np.ones_like(x[0]).astype(bool))
-    comp_facets = np.setdiff1d(all_boundary_facets, facets)
-
-    indices = np.hstack([facets, comp_facets])
-    sorted_indices = np.argsort(indices)
-    facets_markers = np.ones_like(facets).astype(np.int32)
-    comp_markers = 2 * np.ones_like(comp_facets).astype(np.int32)
-    markers = np.hstack([facets_markers, comp_markers])
-    facets_tags_out = dfx.mesh.meshtags(submesh_out,
-                                        fdim,
-                                        indices[sorted_indices],
-                                        markers[sorted_indices])
-    
-    ds = ufl.Measure("ds", domain=submesh_out, subdomain_data=facets_tags_out)
-
-    n = ufl.FacetNormal(submesh_out)
-    test_int_submesh_out = integrand(n) * ds(1)
-    benchmark_submesh_out = assemble_scalar(dfx.fem.form(test_int_submesh_out))
-
-    assert val_test_mesh_out == benchmark_submesh_out, f"val_test = {val_test_mesh_out}; val_benchmark = {benchmark_submesh_out}; One-sided integral from outside."
+    assert np.isclose(val_test_mesh_in,  benchmark_values[0], atol=1.e-20)
+    assert np.isclose(val_test_mesh_out, benchmark_values[1], atol=1.e-20)
 
 if __name__=="__main__":
-    test_data = data_5
-    test_one_sided_integral(test_data[0], test_data[1], test_data[2], test_data[3], test_data[4], test_data[5], plot=False)
+    test_data = data_9
+    test_one_sided_integral(test_data[0], test_data[1], test_data[2], test_data[3], test_data[4], test_data[5], plot=True)
