@@ -7,12 +7,7 @@ from   mpi4py import MPI
 import pandas as pd
 from   petsc4py.PETSc import Options, KSP
 
-# Import phiFEM modules
-from phiFEM.phifem.continuous_functions import ContinuousFunction, ExactSolution, Levelset
-from phiFEM.phifem.solver import PhiFEMSolver
-
-# Import FEM modules, used to compare with a reference solution on a conforming mesh
-from FEM.compute_exact_error import compute_exact_error
+from phiFEM.phifem.mesh_scripts import compute_tags_measures
 
 print("===============================")
 print("  Product of sines test case")
@@ -48,7 +43,7 @@ def tilted_square(x):
     return fct(x) - jnp.sqrt(2.)/2.
 
 # Levelset as a smooth product of sines function
-def expression_levelset(x):
+def levelset(x):
     vect = np.full_like(x, 0.5)
     val = -np.sin(np.pi * (rotation(-tilt_angle, x - rotation(tilt_angle, vect))[0, :])) * \
            np.sin(np.pi * (rotation(-tilt_angle, x - rotation(tilt_angle, vect))[1, :]))
@@ -57,15 +52,15 @@ def expression_levelset(x):
     # val[val_ext > 0.] = val_ext[val_ext > 0.]
     return val
 
-def expression_detection_levelset(x):
+def detection_levelset(x):
     return tilted_square(x)
 
-def expression_u_exact(x):
+def exact_solution(x):
     return jnp.sin(2. * jnp.pi * rotation(-tilt_angle, x)[0, :]) * \
            jnp.sin(2. * jnp.pi * rotation(-tilt_angle, x)[1, :])
 
 # Not required since jax will compute the negative laplacian of u_exact automatically but we add it since we know the analytical expression :)
-def expression_rhs(x):
+def source_term(x):
     return 8. * jnp.pi**2 * jnp.sin(2. * jnp.pi * rotation(-tilt_angle, x)[0, :]) * \
                             jnp.sin(2. * jnp.pi * rotation(-tilt_angle, x)[1, :])
 
@@ -73,12 +68,6 @@ def expression_rhs(x):
 nx = int(np.abs(bbox[0, 1] - bbox[0, 0]) * np.sqrt(2.) / mesh_size)
 ny = int(np.abs(bbox[1, 1] - bbox[1, 0]) * np.sqrt(2.) / mesh_size)
 bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox.T, [nx, ny])
-
-# Defines continuous functions data
-source_term    = ContinuousFunction(expression_rhs)
-exact_solution = ExactSolution(expression_u_exact)
-levelset       = Levelset(expression_levelset)
-levelset.set_detection_expression(expression_detection_levelset)
 
 # Defines finite elements
 fe_element       = element("Lagrange", bg_mesh.topology.cell_name(), finite_element_degree)
@@ -92,6 +81,8 @@ options["ksp_rtol"]      = 1e-7
 options["pc_hypre_type"] = "boomeramg"
 petsc_solver = KSP().create(bg_mesh.comm)
 petsc_solver.setFromOptions()
+
+
 
 # Initialize phiFEM solver
 phiFEM_solver = PhiFEMSolver(bg_mesh,
