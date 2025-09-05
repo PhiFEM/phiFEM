@@ -1,0 +1,20 @@
+# ============================
+# Interface elasticity elliptic interface
+# ============================
+
+# Mesh parameters
+mesh_size: 0.1
+
+# phiFEM parameters
+primal_degree: 1
+auxiliary_degree: 1
+flux_degree: 1
+levelset_degree: 1
+boundary_detection_degree: 1
+stabilization_coefficient: 1.
+penalization_coefficient: 1.
+cell_type: "triangle"
+box_mode: true
+bbox:
+- [-1.5, 1.5]
+- [-1.5, 1.5]
