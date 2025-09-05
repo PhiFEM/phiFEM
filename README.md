@@ -34,9 +34,9 @@ bash run_image.sh
 ```bash
 cd demo/weak-dirichlet/flower
 ```
-The `main.py` script have the following parameters:
+Run the `main.py` script:
 ```bash
-python main.py
+python main.py bg
 ```
 
 ## License

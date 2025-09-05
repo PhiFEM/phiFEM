@@ -5,32 +5,60 @@ from mpi4py import MPI
 import numpy as np
 import pytest
 from phiFEM.phifem.mesh_scripts import _tag_cells, _tag_facets
-from phiFEM.phifem.continuous_functions import Levelset
 import os
-from test_outward_normal import create_disk # type: ignore
-
+from tests_data.utils import create_disk, create_square, create_square_quad # type: ignore
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
 """
-data_1 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", -1)
-data_2 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", 1)
-data_3 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", 2)
-data_4 = ("Circle radius 1", "disk", Levelset(lambda x: x[0, :]**2 + x[1, :]**2 - 0.125), "celltags_1", "facettags_1", 3)
+data_1 = ("circle_in_circle_-1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, -1)
+data_2 = ("circle_in_circle_1", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 1)
+data_3 = ("circle_in_circle_2", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
+data_4 = ("circle_in_circle_3", "disk", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
 
-testdata = [data_1, data_2, data_3, data_4]
+data_5 = ("boundary_crossing_circle_-1", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, -1)
+data_6 = ("boundary_crossing_circle_1", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 1)
+data_7 = ("boundary_crossing_circle_2", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 2)
+data_8 = ("boundary_crossing_circle_3", "disk", lambda x: x[0]**2 + (x[1] - 0.5)**2 - 0.125, 3)
+
+data_9  = ("circle_in_square_-1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, -1)
+data_10 = ("circle_in_square_1", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 1)
+data_11 = ("circle_in_square_2", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 2)
+data_12 = ("circle_in_square_3", "square_quad", lambda x: x[0, :]**2 + x[1, :]**2 - 0.125, 3)
+
+data_13 = ("square_in_square_-1", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., -1)
+data_14 = ("square_in_square_1", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 1)
+data_15 = ("square_in_square_2", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 2)
+data_16 = ("square_in_square_3", "square", lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 1., 3)
+
+data_17 = ("ellipse_in_square_-1", "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, -1)
+data_18 = ("ellipse_in_square_1",  "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, 1)
+data_19 = ("ellipse_in_square_2",  "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, 2)
+data_20 = ("ellipse_in_square_3",  "square_quad", lambda x: x[0]**2 + (0.3 * x[1] + 0.1)**2 - 0.65, 3)
+
+
+testdata = [data_1,  data_2,  data_3,  data_4,
+            data_5,  data_6,  data_7,  data_8,
+            data_9,  data_10, data_11, data_12,
+            data_13, data_14, data_15, data_16,
+            data_17, data_18, data_19, data_20]
 
 parent_dir = os.path.dirname(__file__)
 
-@pytest.mark.parametrize("data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree", testdata)
-def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, facets_benchmark_name, discrete_levelset_degree, save_as_benchmark=False):
-    mesh_path = os.path.join(parent_dir, "tests_data", "disk" + ".xdmf")
+@pytest.mark.parametrize("data_name, mesh_name, levelset, discrete_levelset_degree", testdata)
+def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degree, save_as_benchmark=False):
+    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
 
     if not os.path.isfile(mesh_path):
         print(f"{mesh_path} not found, we create it.")
-        create_disk(mesh_path, 0.1)
+        if mesh_name=="disk":
+            create_disk(mesh_path, 0.1)
+        if mesh_name=="square":
+            create_square(mesh_path, 0.1)
+        if mesh_name=="square_quad":
+            create_square_quad(mesh_path, 0.1)
     
-    with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", "disk.xdmf"), "r") as fi:
+    with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf"), "r") as fi:
         mesh = fi.read_mesh()
     
     if discrete_levelset_degree > 0:
@@ -51,17 +79,27 @@ def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, 
     # To save benchmark
     if save_as_benchmark:
         cells_benchmark = np.vstack([cells_tags.indices, cells_tags.values])
-        np.savetxt(os.path.join(parent_dir, "tests_data", "celltags_1.csv"), cells_benchmark, delimiter=" ", newline="\n")
+        np.savetxt(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.csv"), cells_benchmark, delimiter=" ", newline="\n")
 
         facets_benchmark = np.vstack([facets_tags.indices, facets_tags.values])
-        np.savetxt(os.path.join(parent_dir, "tests_data", "facettags_1.csv"), facets_benchmark, delimiter=" ", newline="\n")
+        np.savetxt(os.path.join(parent_dir, "tests_data", data_name + "_facets_tags.csv"), facets_benchmark, delimiter=" ", newline="\n")
+
+        # For visualization purpose only
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(mesh, cells_tags, ax, expression_levelset=levelset)
+        plt.savefig(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.png"), dpi=500, bbox_inches="tight")
+        fig = plt.figure()
+        ax = fig.subplots()
+        plot_mesh_tags(mesh, facets_tags, ax, linewidth=1.5)
+        plt.savefig(os.path.join(parent_dir, "tests_data", data_name + "_facets_tags.png"), dpi=500, bbox_inches="tight")
     else:
         try:
-            cells_benchmark = np.loadtxt(os.path.join(parent_dir, "tests_data", cells_benchmark_name + ".csv"), delimiter=" ")
+            cells_benchmark = np.loadtxt(os.path.join(parent_dir, "tests_data", data_name + "_cells_tags.csv"), delimiter=" ")
         except FileNotFoundError:
             raise FileNotFoundError("{cells_benchmark_name} not found, have you generated the benchmark ?")
         try:
-            facets_benchmark = np.loadtxt(os.path.join(parent_dir, "tests_data", facets_benchmark_name + ".csv"), delimiter=" ")
+            facets_benchmark = np.loadtxt(os.path.join(parent_dir, "tests_data", data_name + "_facets_tags.csv"), delimiter=" ")
         except FileNotFoundError:
             raise FileNotFoundError("{facets_benchmark_name} not found, have you generated the benchmark ?")
 
@@ -73,48 +111,7 @@ def test_compute_meshtags(data_name, mesh_name, levelset, cells_benchmark_name, 
 
 
 if __name__=="__main__":
-    mesh_path = os.path.join(parent_dir, "tests_data", "disk" + ".xdmf")
-
-    if not os.path.isfile(mesh_path):
-        print(f"{mesh_path} not found, we create it.")
-        create_disk(mesh_path, 0.1)
-    
-    with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
-        mesh = fi.read_mesh()
-    
-    tilt_angle = np.pi/3.
-    def rotation(angle, x):
-        if x.shape[0] == 3:
-            R = np.array([[np.cos(angle), -np.sin(angle), 0],
-                          [np.sin(angle),  np.cos(angle), 0],
-                          [             0,               0, 1]])
-        elif x.shape[0] == 2:
-            R = np.array([[np.cos(angle), -np.sin(angle)],
-                          [np.sin(angle),  np.cos(angle)]])
-        else:
-            raise ValueError("Incompatible argument dimension.")
-        return R.dot(np.asarray(x))
-
-    # def expression_levelset(x):
-    #     def fct(x):
-    #         return np.sum(np.abs(rotation(-tilt_angle + np.pi/4., x)), axis=0)
-    #     return fct(x) - np.sqrt(2.)/2.
-    
-    def expression_levelset(x):
-        return x[0, :]**2 + x[1, :]**2 - 0.125
-
-
-    k = 4
-    CGElement = element("Lagrange", mesh.topology.cell_name(), k)
-    V = dfx.fem.functionspace(mesh, CGElement)
-    discrete_levelset = dfx.fem.Function(V)
-    discrete_levelset.interpolate(expression_levelset)
-
-    cells_tags = _tag_cells(mesh,
-                            discrete_levelset,
-                            2)
-
-    facets_tags = _tag_facets(mesh,
-                              cells_tags)
-
-    test_compute_meshtags("0", "disk", expression_levelset, "celltags_1", "facettags_1", 2, save_as_benchmark=False)
+    from tags_plot.plot import plot_mesh_tags
+    import matplotlib.pyplot as plt
+    for test_data in testdata:
+        test_compute_meshtags(test_data[0], test_data[1], test_data[2], test_data[3], save_as_benchmark=True)

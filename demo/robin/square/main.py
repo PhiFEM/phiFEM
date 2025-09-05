@@ -1,88 +1,44 @@
-from   basix.ufl import element, mixed_element
-import numpy as np
+import argparse
+from basix.ufl import element, mixed_element
 import dolfinx as dfx
-from   dolfinx.fem.petsc import assemble_matrix, assemble_vector
-from   dolfinx.io import XDMFFile
-from   mpi4py import MPI
+from dolfinx.fem.petsc import assemble_matrix, assemble_vector
+from dolfinx.io import XDMFFile
+from mpi4py import MPI
+import numpy as np
+import os
 import petsc4py.PETSc as PETSc
 import ufl
 
-from phiFEM.phifem.mesh_scripts import compute_tags, compute_outward_normal
+from data import (
+    detection_levelset,
+    levelset,
+    source_term,
+    robin_coef,
+    robin_data,
+    exact_solution,
+)
+from phiFEM.phifem.mesh_scripts import compute_tags_measures
 
-"""
-=============================
- Tilted square levelset data 
-=============================
-"""
+parent_dir = os.path.dirname(__file__)
 
-# Levelset
-tilt_angle = np.pi/6.
-def _rotation(angle, x):
-    if x.shape[0] == 3:
-        R = np.array([[np.cos(angle),   np.sin(angle), 0],
-                      [-np.sin(angle),  np.cos(angle), 0],
-                      [            0,               0, 1]])
-    elif x.shape[0] == 2:
-        R = np.array([[np.cos(angle),   np.sin(angle)],
-                      [-np.sin(angle),  np.cos(angle)]])
-    else:
-        raise ValueError("Incompatible argument dimension.")
-    return R.dot(np.asarray(x))
+parser = argparse.ArgumentParser(prog="main.py", description="Run neumann phiFEM demo.")
 
-def detection_levelset(x):
-    y = np.sum(np.abs(_rotation(tilt_angle - np.pi/4., x)), axis=0)
-    return y - np.sqrt(2.)/2.
+parser.add_argument(
+    "mesh_type",
+    type=str,
+    choices=["bg", "sub"],
+    help="Choose if the problem is solved on the background mesh (bg) or on a submesh (sub).",
+)
 
-def levelset(x):
-    vect = np.full_like(x, 0.5)
-    val = -np.sin(np.pi * (_rotation(tilt_angle, x - _rotation(-tilt_angle, vect)))[0, :]) * \
-           np.sin(np.pi * (_rotation(tilt_angle, x - _rotation(-tilt_angle, vect)))[1, :])
-    return val
+args = parser.parse_args()
+mesh_type = args.mesh_type
 
-# Analytical solution
-def exact_solution(x):
-    return np.cos(2. * np.pi * _rotation(tilt_angle, x)[0, :]) * \
-           np.cos(2. * np.pi * _rotation(tilt_angle, x)[1, :])
+output_dir = os.path.join(parent_dir, mesh_type + "_output")
 
-# Source term
-def source_term(x):
-    return 8. * np.pi**2 * exact_solution(x) + exact_solution(x)
+if not os.path.isdir(output_dir):
+    print(f"{output_dir} directory not found, we create it.")
+    os.mkdir(os.path.join(parent_dir, output_dir))
 
-robin_coef = 1.
-def robin(x):
-    rx = _rotation(tilt_angle, x)
-
-    def _dx(rx):
-        return - 2. * np.pi * np.sin(2. * np.pi * rx[0,:]) * \
-                              np.cos(2. * np.pi * rx[1,:])
-    def _dy(rx):
-        return - 2. * np.pi * np.cos(2. * np.pi * rx[0,:]) * \
-                              np.sin(2. * np.pi * rx[1,:])
-
-    vals = -_dy(rx)
-    mask = np.where(np.abs(rx[1,:]) < rx[0,: ])[0]
-    vals[mask] = _dx(rx[:,mask])
-    mask = np.where(np.abs(rx[0,:]) < rx[1,:])[0]
-    vals[mask] = _dy(rx[:, mask])
-    mask = np.where(np.abs(rx[1,:]) < -rx[0,: ])[0]
-    vals[mask] = -_dx(rx[:, mask])
-
-    vals += robin_coef * exact_solution(x)
-    return vals
-
-"""
-=========================
- Initial background mesh
-=========================
-"""
-bbox = [[-1., -1.], [1., 1.]]
-cell_type = dfx.cpp.mesh.CellType(-4)
-mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200], cell_type)
-
-cells_tags, facets_tags, mesh = compute_tags(mesh,
-                                             detection_levelset,
-                                             2,
-                                             box_mode=True)
 
 # Degree of uh
 primal_degree = 1
@@ -92,20 +48,38 @@ vector_degree = 1
 auxiliary_degree = 0
 # Degree of φh
 levelset_degree = 2
+# Penalization and stabilization parameters
+pen_coef = 1.0
+stab_coef = 1.0
+
+bbox = [[-1.0, -1.0], [1.0, 1.0]]
+cell_type = dfx.cpp.mesh.CellType.triangle
+bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200], cell_type)
+
+if mesh_type == "bg":
+    cells_tags, facets_tags, _, ds, _, _ = compute_tags_measures(
+        bg_mesh, detection_levelset, 1, box_mode=True
+    )
+    mesh = bg_mesh
+elif mesh_type == "sub":
+    cells_tags, facets_tags, mesh, _, _, _ = compute_tags_measures(
+        bg_mesh, detection_levelset, 1, box_mode=False
+    )
+    ds = ufl.Measure("ds", domain=mesh)
 
 cell_name = mesh.topology.cell_name()
 gdim = mesh.geometry.dim
-primal_element    = element("Lagrange", cell_name, primal_degree)
-auxiliary_element = element("DG",       cell_name, auxiliary_degree)
-vector_element    = element("Lagrange", cell_name, vector_degree, shape=(gdim,))
-levelset_element  = element("Lagrange", cell_name, levelset_degree)
+primal_element = element("Lagrange", cell_name, primal_degree)
+auxiliary_element = element("DG", cell_name, auxiliary_degree)
+vector_element = element("Lagrange", cell_name, vector_degree, shape=(gdim,))
+levelset_element = element("Lagrange", cell_name, levelset_degree)
 mxd_element = mixed_element([primal_element, vector_element, auxiliary_element])
 
-primal_space    = dfx.fem.functionspace(mesh, primal_element)
+primal_space = dfx.fem.functionspace(mesh, primal_element)
 auxiliary_space = dfx.fem.functionspace(mesh, auxiliary_element)
-vector_space    = dfx.fem.functionspace(mesh, vector_element)
-mixed_space     = dfx.fem.functionspace(mesh, mxd_element)
-levelset_space  = dfx.fem.functionspace(mesh, levelset_element)
+vector_space = dfx.fem.functionspace(mesh, vector_element)
+mixed_space = dfx.fem.functionspace(mesh, mxd_element)
+levelset_space = dfx.fem.functionspace(mesh, levelset_element)
 
 """
 ===================
@@ -121,9 +95,9 @@ phi_h.interpolate(levelset)
 f_h = dfx.fem.Function(primal_space)
 f_h.interpolate(source_term)
 
-# Dirichlet data (added here for the sake of demo)
+# Robin data
 u_R = dfx.fem.Function(primal_space)
-u_R.interpolate(robin)
+u_R.interpolate(robin_data)
 
 u, y, p = ufl.TrialFunctions(mixed_space)
 v, z, q = ufl.TestFunctions(mixed_space)
@@ -132,53 +106,64 @@ dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
 dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 
 h_T = ufl.CellDiameter(mesh)
-n   = ufl.FacetNormal(mesh)
-
-# In box_mode (see l93), the boundary term needs a special treatment
-omega_h_n = compute_outward_normal(mesh, levelset)
-dg0_element = element("DG", cell_name, 0)
-dg0_space = dfx.fem.functionspace(mesh, dg0_element)
-omega_h_indicator = dfx.fem.Function(dg0_space)
-inside_cells = cells_tags.find(1)
-cut_cells = cells_tags.find(2)
-omega_h_cells = np.union1d(inside_cells, cut_cells)
-omega_h_indicator.x.array[omega_h_cells] = 1.
-
-norm_grad_phi_h = ufl.sqrt(ufl.inner(ufl.grad(phi_h), ufl.grad(phi_h)))
+n = ufl.FacetNormal(mesh)
 
 # Bilinear form
-boundary = ufl.inner(2. * ufl.avg(ufl.inner(y, omega_h_n) * omega_h_indicator),
-                     2. * ufl.avg(ufl.inner(v, omega_h_indicator)))
-
-stiffness = ufl.inner(ufl.grad(u), ufl.grad(v)) + ufl.inner(u, v)
-
-penalization = 1.0 * (ufl.inner(y + ufl.grad(u), z + ufl.grad(v)) \
-                 + ufl.inner(ufl.div(y) + u, ufl.div(z) + v) \
-                 + h_T**(-2) * ufl.inner(ufl.inner(y, ufl.grad(phi_h)) - ufl.inner(norm_grad_phi_h, robin_coef * u) + h_T**(-1) * ufl.inner(p, phi_h), ufl.inner(z, ufl.grad(phi_h)) - ufl.inner(norm_grad_phi_h, robin_coef * v) + h_T**(-1) * ufl.inner(q, phi_h)))
-
-stabilization_facets = 10.0 * ufl.avg(h_T) * \
-                        ufl.inner(ufl.jump(ufl.grad(u), n),
-                                  ufl.jump(ufl.grad(v), n))
-
-a = stiffness              * (dx(1) + dx(2)) \
-    + boundary             * dS(4) \
-    + penalization         * dx(2) \
-    + stabilization_facets * dS(2)
-
-# Linear form
-rhs = ufl.inner(f_h, v)
-penalization_rhs = 1.0 * (- h_T**(-2) * ufl.inner(u_R, norm_grad_phi_h * (ufl.inner(z, ufl.grad(phi_h)) - ufl.inner(norm_grad_phi_h, robin_coef * v) + h_T**(-1) * ufl.inner(q, phi_h))) \
-                + ufl.inner(f_h, ufl.div(z) + v))
-
-L = rhs                 * (dx(1) + dx(2)) \
-    + penalization_rhs  * dx(2)
+norm_grad_phi_h = ufl.sqrt(ufl.inner(ufl.grad(phi_h), ufl.grad(phi_h)))
+a = (
+    (ufl.inner(ufl.grad(u), ufl.grad(v)) + ufl.inner(u, v)) * dx((1, 2))
+    + ufl.inner(ufl.inner(y, n), v) * ds
+    + (
+        pen_coef
+        * (
+            ufl.inner(y + ufl.grad(u), z + ufl.grad(v))
+            + ufl.inner(ufl.div(y) + u, ufl.div(z) + v)
+            + h_T ** (-2)
+            * ufl.inner(
+                ufl.inner(y, ufl.grad(phi_h))
+                - ufl.inner(norm_grad_phi_h, robin_coef * u)
+                + h_T ** (-1) * ufl.inner(p, phi_h),
+                ufl.inner(z, ufl.grad(phi_h))
+                - ufl.inner(norm_grad_phi_h, robin_coef * v)
+                + h_T ** (-1) * ufl.inner(q, phi_h),
+            )
+        )
+        * dx(2)
+    )
+    + (
+        stab_coef
+        * (
+            ufl.avg(h_T)
+            * ufl.inner(ufl.jump(ufl.grad(u), n), ufl.jump(ufl.grad(v), n))
+            * dS(2)
+        )
+    )
+)
 
 bilinear_form = dfx.fem.form(a)
-linear_form = dfx.fem.form(L)
-
 A = assemble_matrix(bilinear_form)
-b = assemble_vector(linear_form)
 A.assemble()
+
+# Linear form
+L = ufl.inner(f_h, v) * dx((1, 2)) + (
+    pen_coef
+    * (
+        -(h_T ** (-2))
+        * ufl.inner(
+            u_R,
+            norm_grad_phi_h
+            * (
+                ufl.inner(z, ufl.grad(phi_h))
+                - ufl.inner(norm_grad_phi_h, robin_coef * v)
+                + h_T ** (-1) * ufl.inner(q, phi_h)
+            ),
+        )
+        + ufl.inner(f_h, ufl.div(z) + v)
+    )
+) * dx(2)
+
+linear_form = dfx.fem.form(L)
+b = assemble_vector(linear_form)
 
 """
 =========================
@@ -215,13 +200,58 @@ solution_uh.collapse()
  Save solution for visualization
 =================================
 """
-with XDMFFile(mesh.comm, "solution.xdmf", "w") as of:
+with XDMFFile(mesh.comm, os.path.join(output_dir, "solution.xdmf"), "w") as of:
     of.write_mesh(mesh)
     of.write_function(solution_uh)
 
 u_exact_h = dfx.fem.Function(primal_space)
 u_exact_h.interpolate(exact_solution)
 
-with XDMFFile(mesh.comm, "exact_solution.xdmf", "w") as of:
+with XDMFFile(mesh.comm, os.path.join(output_dir, "exact_solution.xdmf"), "w") as of:
     of.write_mesh(mesh)
     of.write_function(u_exact_h)
+
+"""
+=========================
+ Local error computation
+=========================
+"""
+ref_element = element("Lagrange", cell_name, primal_degree + 2)
+ref_space = dfx.fem.functionspace(mesh, ref_element)
+
+ref_exact_solution = dfx.fem.Function(ref_space)
+ref_exact_solution.interpolate(exact_solution)
+ref_solution = dfx.fem.Function(ref_space)
+ref_solution.interpolate(solution_uh)
+ref_error = dfx.fem.Function(ref_space)
+ref_error.x.array[:] = ref_exact_solution.x.array[:] - ref_solution.x.array[:]
+
+dg0_element = element("DG", cell_name, 0)
+dg0_space = dfx.fem.functionspace(mesh, dg0_element)
+v0 = ufl.TestFunction(dg0_space)
+
+h1_error = ufl.inner(
+    ufl.inner(ufl.grad(ref_error), ufl.grad(ref_error))
+    + ufl.inner(ref_error, ref_error),
+    v0,
+) * dx((1, 2))
+
+h1_error_form = dfx.fem.form(h1_error)
+h1_error_vec = assemble_vector(h1_error_form)
+
+h1_error_fct = dfx.fem.Function(dg0_space)
+h1_error_fct.x.array[:] = h1_error_vec.array[:]
+
+with XDMFFile(mesh.comm, os.path.join(output_dir, "h1_error.xdmf"), "w") as of:
+    of.write_mesh(mesh)
+    of.write_function(h1_error_fct)
+
+h1_norm_exact_solution = (
+    ufl.inner(ufl.grad(ref_exact_solution), ufl.grad(ref_exact_solution))
+    + ufl.inner(ref_exact_solution, ref_exact_solution)
+) * dx((1, 2))
+h1_norm_exact_solution_form = dfx.fem.form(h1_norm_exact_solution)
+h1_norm_exact_solution = dfx.fem.assemble_scalar(h1_norm_exact_solution_form)
+
+print("Relative H1 error:")
+print(np.sqrt(h1_error_fct.x.array.sum() / h1_norm_exact_solution))
