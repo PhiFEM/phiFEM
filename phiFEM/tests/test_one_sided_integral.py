@@ -10,8 +10,6 @@ import ufl
 
 from phiFEM.phifem.mesh_scripts import compute_tags_measures
 from phiFEM.tests.tests_data.utils import create_square_tri, create_square_quad
-from tags_plot.plot import plot_mesh_tags
-import matplotlib.pyplot as plt
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, levelset discretization degree, "benchmark values", integrand)
@@ -103,5 +101,8 @@ def test_one_sided_integral(data_name, mesh_name, levelset, discrete_levelset_de
     assert np.isclose(val_test_mesh_out, benchmark_values[1], atol=1.e-20)
 
 if __name__=="__main__":
+    from tags_plot.plot import plot_mesh_tags
+    import matplotlib.pyplot as plt
+    
     test_data = data_9
     test_one_sided_integral(test_data[0], test_data[1], test_data[2], test_data[3], test_data[4], test_data[5], plot=True)

@@ -8,9 +8,6 @@ from phiFEM.phifem.mesh_scripts import _tag_cells, _tag_facets
 import os
 from tests_data.utils import create_disk, create_square, create_square_quad # type: ignore
 
-from tags_plot.plot import plot_mesh_tags
-import matplotlib.pyplot as plt
-
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
 """
@@ -114,5 +111,7 @@ def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degr
 
 
 if __name__=="__main__":
+    from tags_plot.plot import plot_mesh_tags
+    import matplotlib.pyplot as plt
     for test_data in testdata:
         test_compute_meshtags(test_data[0], test_data[1], test_data[2], test_data[3], save_as_benchmark=True)
