@@ -237,4 +237,4 @@ h1_norm_exact_solution_form = dfx.fem.form(h1_norm_exact_solution)
 h1_norm_exact_solution = dfx.fem.assemble_scalar(h1_norm_exact_solution_form)
 
 print("Relative H1 error:")
-print(np.sqrt(h1_error_fct.x.array.sum()/h1_norm_exact_solution))
+print(np.sqrt(h1_error_fct.x.array.sum() / h1_norm_exact_solution))
