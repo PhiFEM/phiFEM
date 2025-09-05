@@ -2,7 +2,7 @@ from   basix.ufl         import element
 from   collections.abc   import Callable
 import dolfinx           as dfx
 from   dolfinx.cpp.graph import AdjacencyList_int32 # type: ignore
-from   dolfinx.fem       import Function, FunctionSpace
+from   dolfinx.fem       import Function
 from   dolfinx.fem.petsc import assemble_vector
 from   dolfinx.mesh      import Mesh, MeshTags
 import numpy             as np
@@ -10,7 +10,7 @@ import numpy.typing      as npt
 from   os                import PathLike
 from   typing            import Any, Tuple
 import ufl # type: ignore
-from   ufl               import inner, grad
+from   ufl               import inner
 
 PathStr = PathLike[str] | str
 
@@ -387,7 +387,7 @@ def _tag_facets(mesh:       Mesh,
 def compute_tags_measures(mesh:               Mesh,
                           detection_levelset: NDArrayFunction,
                           detection_degree:   int,
-                          box_mode:           bool = False) -> Tuple[MeshTags, MeshTags, Mesh | None, ufl.Measure | None, ufl.Measure | None, Tuple[dfx.mesh.EntityMap, dfx.mesh.EntityMap, npt.NDArray[np.int32] | None]]:
+                          box_mode:           bool = False) -> Tuple[MeshTags, MeshTags, Mesh | None, ufl.Measure | None, ufl.Measure | None, Tuple[npt.NDArray[np.int32], npt.NDArray[np.int32], npt.NDArray[np.int32] | None]]:
     """ Compute the mesh (cells and facets) tags as well as the discrete boundary measures.
 
     Args:
