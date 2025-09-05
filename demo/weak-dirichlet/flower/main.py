@@ -14,7 +14,7 @@ from phiFEM.phifem.mesh_scripts import compute_tags_measures
 parent_dir = os.path.dirname(__file__)
 
 parser = argparse.ArgumentParser(
-    prog="Run the demo.", description="Run strong dirichlet phiFEM demo."
+    prog="main.py", description="Run weak dirichlet phiFEM demo."
 )
 
 parser.add_argument(
