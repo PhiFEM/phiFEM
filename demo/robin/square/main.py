@@ -17,7 +17,7 @@ from data import (
     robin_data,
     exact_solution,
 )
-from phiFEM.phifem.mesh_scripts import compute_tags_measures
+from phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
 

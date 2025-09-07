@@ -8,7 +8,7 @@ import os
 import pytest
 import ufl
 
-from phiFEM.phifem.mesh_scripts import compute_tags_measures
+from phifem.mesh_scripts import compute_tags_measures
 from phiFEM.tests.tests_data.utils import create_square_tri, create_square_quad
 
 """

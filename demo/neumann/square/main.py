@@ -10,7 +10,7 @@ import petsc4py.PETSc as PETSc
 import ufl
 
 from data import detection_levelset, levelset, source_term, neumann_data, exact_solution
-from phiFEM.phifem.mesh_scripts import compute_tags_measures
+from phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
 

@@ -4,7 +4,7 @@ from dolfinx.io import XDMFFile
 from mpi4py import MPI
 import numpy as np
 import pytest
-from phiFEM.phifem.mesh_scripts import _tag_cells, _tag_facets
+from phifem.mesh_scripts import _tag_cells, _tag_facets
 import os
 from tests_data.utils import create_disk, create_square, create_square_quad # type: ignore
 
