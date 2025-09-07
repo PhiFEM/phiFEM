@@ -49,6 +49,6 @@ You should have received a copy of the GNU Lesser General Public License along w
 
 ## Authors (alphabetical)
 
-Raphaël Bulle ([https://rbulle.io](https://rbulle.github.io/))  
+Raphaël Bulle ([https://rbulle.github.io](https://rbulle.github.io/))  
 Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))  
 Killian Vuillemot
