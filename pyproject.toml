@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "phiFEM"
+version = "0.4.3"
+authors = [
+	{ name="Raphaël Bulle", email="raphael.bulle@inria.fr" },
+	{ name="Michel Duprez", email="michel.duprez@inria.fr" },
+	{ name="Killian Vuillemot", email="killian.vuillemot@umontpellier.fr" }
+]
+maintainers = [
+	{ name="Raphaël Bulle", email="raphael.bulle@inria.fr" }
+]
+description = "phiFEM: convenience tools to use the phiFEM immersed boundary finite element method with dolfinx."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["fenics-dolfinx>=0.9.0"]
+classifiers = [
+	"Programming Language :: Python :: 3",
+	"Operating System :: OS Independent",
+]
+license = "GPL-3.0"
+license-files = ["COPYING*"]
+
+[project.urls]
+Homepage = "https://github.com/PhiFEM/phiFEM"
+Issues = "https://github.com/PhiFEM/phiFEM/issues"

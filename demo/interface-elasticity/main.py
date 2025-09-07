@@ -12,7 +12,7 @@ import ufl
 import yaml
 
 from data import E_in, E_out, epsilon, sigma_in, sigma_out, levelset, exact_solution, cos_vec
-from phiFEM.phifem.mesh_scripts import compute_tags_measures
+from phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
 

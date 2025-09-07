@@ -8,8 +8,7 @@ import os
 import pytest
 import ufl
 
-from phiFEM.phifem.mesh_scripts import compute_tags_measures
-from phiFEM.tests.tests_data.utils import create_square_tri, create_square_quad
+from phifem.mesh_scripts import compute_tags_measures
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, levelset discretization degree, "benchmark values", integrand)
@@ -48,15 +47,8 @@ parent_dir = os.path.dirname(__file__)
 @pytest.mark.parametrize("data_name, mesh_name, levelset, discrete_levelset_degree, benchmark_values, integrand", testdata)
 def test_one_sided_integral(data_name, mesh_name, levelset, discrete_levelset_degree, benchmark_values, integrand, plot=False):
     mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
-
-    if not os.path.isfile(mesh_path):
-        print(f"{mesh_path} not found, we create it.")
-        if mesh_name=="square_tri":
-            create_square_tri(mesh_path, 0.1)
-        if mesh_name=="square_quad":
-            create_square_quad(mesh_path, 0.1)
     
-    with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf"), "r") as fi:
+    with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
     
     if discrete_levelset_degree > 0:
