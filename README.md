@@ -1,43 +1,36 @@
-# $\varphi$-FEM with FEniCSx
+# phiFEM: a convenience package for using φ-FEM with FEniCSx
 
-$\varphi$-FEM is an immersed boundary finite element method leveraging levelset functions to avoid the use of any non-standard finite element spaces or non-standard quadrature rules.
-More information about $\varphi$-FEM can be found in the various publications (see e.g. [^1] and [^2]).
+φ-FEM (or phiFEM) is an immersed boundary finite element method leveraging levelset functions to avoid the use of any non-standard finite element spaces or non-standard quadrature rules.
+More information about φ-FEM can be found in the various publications (see e.g. [^1] and [^2]).
 
-This repository aims at providing an implementation of the $\varphi$-FEM in the [FEniCSx](https://fenicsproject.org/) computation platform as well as several demos to illustrate its capabilities.
+This package provides convenience tools that helps with the implementation of φ-FEM schemes in the [FEniCSx](https://fenicsproject.org/) computation platform.
 
 [^1]: M. DUPREZ and A. LOZINSKI, $\phi$-FEM: A finite element method on domains defined by level-sets, SIAM J. Numer. Anal., 58 (2020), pp. 1008-1028, [https://epubs.siam.org/doi/10.1137/19m1248947](https://epubs.siam.org/doi/10.1137/19m1248947)
 [^2]: S. COTIN, M. DUPREZ, V. LLERAS, A. LOZINSKI, and K. VUILLEMOT, $\phi$-FEM: An efficient simulation tool using simple meshes for problems in structure mechanics and heat transfer, Partition of Unity Methods, (2023), pp. 191-216, [https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0](https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0),
 
 ## Prerequisites
 
-- [Git](https://git-scm.com/)
-- [Docker](https://www.docker.com/)/[podman](https://podman.io/)
+### General
 
-The docker image is based on the stable dolfinx image (see [FEniCSx](https://fenicsproject.org/)).
+- [dolfinx](https://github.com/FEniCS/dolfinx)
+
+  
+### To run some of the demos
+
+- [PyYAML](https://pypi.org/project/PyYAML/)
+
+### To run the tests
+
+- [pytest](https://docs.pytest.org/en/stable/)
 
 ## Usage
 
-### Build the image (from the root directory):
-Replace `YOUR_ENGINE_HERE` by `docker`, `podman` or your favorite container engine (the following instructions use Docker/podman UI).
-```bash
-export CONTAINER_ENGINE="YOUR_ENGINE_HERE"
-cd docker/
-bash build_image.sh
-```
+We recommend to use `phiFEM` inside the `dolfinx` container (e.g. `ghcr.io/fenics/dolfinx/dolfinx:stable`).
 
-### Launch the image (from the root directory):
-```bash
-bash run_image.sh
-```
-
-### Run an example (inside the container from the root directory):
-```bash
-cd demo/weak-dirichlet/flower
-```
-Run the `main.py` script:
-```bash
-python main.py bg
-```
+- Launch the `dolfinx` container in interactive mode using, e.g. [Docker](https://www.docker.com/) (see [the docker documentation](https://docs.docker.com/reference/cli/docker/container/run/) for the meaning of the different arguments):
+  `docker run -ti -v $(pwd):/home/dolfinx/shared -w /home/dolfinx/shared dolfinx/dolfinx:stable`
+- Inside the container install the phiFEM package with `pip`:
+  `pip install phifem` 
 
 ## License
 
