@@ -50,7 +50,7 @@ To run the demos you'll need to clone the repository and build and launch the co
   bash run_image.sh
   ```
 
-4) Inside the containern navigate the demo directory and e.g. run the interface elasticity demo:
+4) Inside the container navigate the demo directory and e.g. run the interface elasticity demo:
 
   ```bash
   cd demo/interface-elasticity
