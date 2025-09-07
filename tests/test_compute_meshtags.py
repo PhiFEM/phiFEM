@@ -6,7 +6,6 @@ import numpy as np
 import pytest
 from phifem.mesh_scripts import _tag_cells, _tag_facets
 import os
-from tests_data.utils import create_disk, create_square, create_square_quad # type: ignore
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
@@ -49,16 +48,7 @@ parent_dir = os.path.dirname(__file__)
 def test_compute_meshtags(data_name, mesh_name, levelset, discrete_levelset_degree, save_as_benchmark=False):
     mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
 
-    if not os.path.isfile(mesh_path):
-        print(f"{mesh_path} not found, we create it.")
-        if mesh_name=="disk":
-            create_disk(mesh_path, 0.1)
-        if mesh_name=="square":
-            create_square(mesh_path, 0.1)
-        if mesh_name=="square_quad":
-            create_square_quad(mesh_path, 0.1)
-    
-    with XDMFFile(MPI.COMM_WORLD, os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf"), "r") as fi:
+    with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
     
     if discrete_levelset_degree > 0:
