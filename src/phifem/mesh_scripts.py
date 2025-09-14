@@ -1,69 +1,84 @@
-from   basix.ufl         import element
-from   collections.abc   import Callable
-import dolfinx           as dfx
-from   dolfinx.cpp.graph import AdjacencyList_int32 # type: ignore
-from   dolfinx.fem       import Function
-from   dolfinx.fem.petsc import assemble_vector
-from   dolfinx.mesh      import Mesh, MeshTags
-import numpy             as np
-import numpy.typing      as npt
-from   os                import PathLike
-from   typing            import Any, Tuple
-import ufl # type: ignore
-from   ufl               import inner
+from basix.ufl import element
+from collections.abc import Callable
+import dolfinx as dfx
+from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
+from dolfinx.fem import Function
+from dolfinx.fem.petsc import assemble_vector
+from dolfinx.mesh import Mesh, MeshTags
+import numpy as np
+import numpy.typing as npt
+from os import PathLike
+from typing import Any, Tuple
+import ufl  # type: ignore
+from ufl import inner
 
 PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
+def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
+    """Generate quadrature points on the reference segment.
+
+    Args:
+        N: int, N + 1 is the number of points on the segment.
+
+    Returns: A numpy array (2, N + 1) that contains the coordinates of the quadrature points.
+    """
+    if N > 0:
+        points = np.linspace(0, 1, N + 1).astype(np.float64)
+    else:
+        points = np.array([0.5]).astype(np.float64)
+    return np.atleast_2d(points).T
+
 def _reference_triangle_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """ Generate boundary quadrature points on the reference triangle cell.
+    """Generate boundary quadrature points on the reference triangle cell.
 
     Args:
         N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
 
-    Returns: A numpy array (3, 3N) that contains the coordinates of the quadrature points.
+    Returns: A numpy array (2, 3N) that contains the coordinates of the quadrature points.
     """
-    if N>0:
-        t1 = np.linspace(0, 1, N+1)
+    if N > 0:
+        t1 = np.linspace(0, 1, N + 1)
         edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
         t2 = t1[1:]
         edge2 = np.stack((1 - t2, t2), axis=-1).astype(np.float64)
         t3 = t1[1:-1]
         edge3 = np.stack((np.zeros_like(t3), 1 - t3), axis=-1).astype(np.float64)
 
-        if N>1:
+        if N > 1:
             points = np.concatenate((edge1, edge2, edge3), axis=0)
         else:
             points = np.concatenate((edge1, edge2), axis=0)
     else:
-        points = np.array([[1./3., 1./3.]]).astype(np.float64)
+        points = np.array([[1.0 / 3.0, 1.0 / 3.0]]).astype(np.float64)
     return points
 
+
 def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """ Generate boundary quadrature points on the reference square cell.
+    """Generate boundary quadrature points on the reference square cell.
 
     Args:
         N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
 
-    Returns: A numpy array (3, 4N) that contains the coordinates of the quadrature points.
+    Returns: A numpy array (2, 4N) that contains the coordinates of the quadrature points.
     """
-    if N>0:
-        t1 = np.linspace(0, 1, N+1)
+    if N > 0:
+        t1 = np.linspace(0, 1, N + 1)
         edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
         t2 = t1[1:]
         edge2 = np.stack((np.ones_like(t2), t2), axis=-1).astype(np.float64)
         t3 = t1[1:]
-        edge3 = np.stack((1. - t3, np.ones_like(t3)), axis=-1).astype(np.float64)
+        edge3 = np.stack((1.0 - t3, np.ones_like(t3)), axis=-1).astype(np.float64)
         t4 = t1[1:-1]
-        edge4 = np.stack((np.zeros_like(t4), 1. - t4), axis=-1).astype(np.float64)
+        edge4 = np.stack((np.zeros_like(t4), 1.0 - t4), axis=-1).astype(np.float64)
 
-        if N>1:
+        if N > 1:
             points = np.concatenate((edge1, edge2, edge3, edge4), axis=0)
         else:
             points = np.concatenate((edge1, edge2, edge3), axis=0)
     else:
-        points = np.array([[1./2., 1./2.]]).astype(np.float64)
+        points = np.array([[1.0 / 2.0, 1.0 / 2.0]]).astype(np.float64)
     return points
 
 def _one_sided_edge_measure(mesh:               Mesh,
