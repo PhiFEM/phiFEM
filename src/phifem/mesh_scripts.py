@@ -81,11 +81,40 @@ def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
         points = np.array([[1.0 / 2.0, 1.0 / 2.0]]).astype(np.float64)
     return points
 
-def _one_sided_edge_measure(mesh:               Mesh,
-                            integration_cells:  list[int],
-                            integration_facets: list[int],
-                            ind:                int) -> ufl.Measure:
-    """ Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
+
+def _compute_detection_vector(discrete_levelset: Function, detection_measure: ufl.Measure):
+    mesh = discrete_levelset.function_space.mesh
+    # We localize at each cell via a DG0 test function.
+    dg_0_element = element("DG", mesh.topology.cell_name(), 0)
+    dg_0_space = dfx.fem.functionspace(mesh, dg_0_element)
+    v0 = ufl.TestFunction(dg_0_space)
+
+    # Assemble the numerator of detection
+    detection_num = inner(discrete_levelset, v0) * detection_measure
+    detection_num_form = dfx.fem.form(detection_num)
+    detection_num_vec = assemble_vector(detection_num_form)
+    # Assemble the denominator of detection
+    detection_denom = (
+        inner(ufl.algebra.Abs(discrete_levelset), v0) * detection_measure
+    )
+    detection_denom_form = dfx.fem.form(detection_denom)
+    detection_denom_vec = assemble_vector(detection_denom_form)
+
+    # detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
+    # However, in practice it can happen that for a very small cut triangle, detection_denom_vec is of the order of the machine precision.
+    # In this case, we set the value of detection_vector to 0.5, meaning we consider the cell as cut.
+    mask = np.where(detection_denom_vec.array > 0.0)
+    detection_vector = np.full_like(detection_num_vec.array, 0.5)
+    detection_vector[mask] = (
+        detection_num_vec.array[mask] / detection_denom_vec.array[mask]
+    )
+    return detection_vector
+
+
+def _one_sided_edge_measure(
+    mesh: Mesh, integration_cells: list[int], integration_facets: list[int], ind: int
+) -> ufl.Measure:
+    """Compute a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
 
     Args:
         mesh: the mesh on which we compute the measure.
