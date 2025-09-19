@@ -120,7 +120,7 @@ a = (
         )
         * dx(2)
     )
-    + ufl.avg(h_T)
+    + stab_coef * ufl.avg(h_T)
     * ufl.inner(ufl.jump(ufl.grad(u), n), ufl.jump(ufl.grad(v), n))
     * dS(2)
 )
