@@ -122,7 +122,7 @@ a = (
     )
     + stab_coef * ufl.avg(h_T)
     * ufl.inner(ufl.jump(ufl.grad(u), n), ufl.jump(ufl.grad(v), n))
-    * dS(2)
+    * dS(3)
 )
 
 bilinear_form = dfx.fem.form(a)
