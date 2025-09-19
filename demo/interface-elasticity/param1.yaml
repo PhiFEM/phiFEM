@@ -3,7 +3,8 @@
 # ============================
 
 # Mesh parameters
-mesh_size: 0.1
+initial_mesh_size: 0.2
+num_iterations: 5
 
 # phiFEM parameters
 primal_degree: 1
