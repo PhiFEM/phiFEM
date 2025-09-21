@@ -1,20 +1,22 @@
-from basix.ufl import element
 from collections.abc import Callable
+from os import PathLike
+from typing import Any, Tuple
+
 import dolfinx as dfx
+import numpy as np
+import numpy.typing as npt
+import ufl  # type: ignore
+from basix.ufl import element
 from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
 from dolfinx.fem import Function
 from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
-import numpy as np
-import numpy.typing as npt
-from os import PathLike
-from typing import Any, Tuple
-import ufl  # type: ignore
 from ufl import inner
 
 PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
+
 
 def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
     """Generate quadrature points on the reference segment.
@@ -29,6 +31,7 @@ def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
     else:
         points = np.array([0.5]).astype(np.float64)
     return np.atleast_2d(points).T
+
 
 def _reference_triangle_boundary_points(N: int) -> npt.NDArray[np.float64]:
     """Generate boundary quadrature points on the reference triangle cell.
@@ -82,7 +85,9 @@ def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
     return points
 
 
-def _compute_detection_vector(discrete_levelset: Function, detection_measure: ufl.Measure):
+def _compute_detection_vector(
+    discrete_levelset: Function, detection_measure: ufl.Measure
+):
     mesh = discrete_levelset.function_space.mesh
     # We localize at each cell via a DG0 test function.
     dg_0_element = element("DG", mesh.topology.cell_name(), 0)
@@ -94,9 +99,7 @@ def _compute_detection_vector(discrete_levelset: Function, detection_measure: uf
     detection_num_form = dfx.fem.form(detection_num)
     detection_num_vec = assemble_vector(detection_num_form)
     # Assemble the denominator of detection
-    detection_denom = (
-        inner(ufl.algebra.Abs(discrete_levelset), v0) * detection_measure
-    )
+    detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * detection_measure
     detection_denom_form = dfx.fem.form(detection_denom)
     detection_denom_vec = assemble_vector(detection_denom_form)
 
@@ -321,7 +324,9 @@ def _tag_cells(
     return cells_tags
 
 
-def _tag_facets(mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, detection_degree: int) -> MeshTags:
+def _tag_facets(
+    mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, detection_degree: int
+) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
     Cut facets                => tag 2
@@ -369,15 +374,21 @@ def _tag_facets(mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, d
     detection_measure = ufl.Measure("ds", domain=mesh, metadata=detection_quadrature)
 
     detection_vector = _compute_detection_vector(discrete_levelset, detection_measure)
-    mask_cut_indices_cells = np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
+    mask_cut_indices_cells = np.logical_and(
+        detection_vector > -1.0, detection_vector < 1.0
+    )
     cut_indices_cells = np.where(mask_cut_indices_cells)[0]
     comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
 
-    cut_boundary_facets = np.intersect1d(c2f_map[cut_indices_cells], background_mesh_boundary_facets)
-    uncut_boundary_facets = np.intersect1d(c2f_map[comp_indices_cells], background_mesh_boundary_facets)
+    cut_boundary_facets = np.intersect1d(
+        c2f_map[cut_indices_cells], background_mesh_boundary_facets
+    )
+    uncut_boundary_facets = np.intersect1d(
+        c2f_map[comp_indices_cells], background_mesh_boundary_facets
+    )
     uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[exterior_cells])
     uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[interior_cells])
-    
+
     # Facets shared by an interior cell and a cut cell
     interior_boundary_facets = np.intersect1d(
         c2f_map[interior_cells], c2f_map[cut_cells]
@@ -479,7 +490,7 @@ def compute_tags_measures(
     Mesh | None,
     ufl.Measure | None,
     ufl.Measure | None,
-    Tuple[npt.NDArray[np.int32], npt.NDArray[np.int32], npt.NDArray[np.int32] | None],
+    list[npt.NDArray[np.int32]] | None,
 ]:
     """Compute the mesh (cells and facets) tags as well as the discrete boundary measures.
 
@@ -505,7 +516,7 @@ def compute_tags_measures(
     cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
 
     if box_mode:
-        submesh = mesh
+        submesh = None
         facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
         d_boundary_outside = _one_sided_edge_measure(
@@ -523,8 +534,14 @@ def compute_tags_measures(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
+        detection_space_submesh = dfx.fem.functionspace(submesh, detection_element)
+        discrete_levelset_submesh = dfx.fem.Function(detection_space_submesh)
+        discrete_levelset_submesh.interpolate(detection_levelset)
+
         cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
-        facets_tags = _tag_facets(submesh, cells_tags, discrete_levelset, detection_degree)
+        facets_tags = _tag_facets(
+            submesh, cells_tags, discrete_levelset_submesh, detection_degree
+        )
         d_boundary_outside = None
         d_boundary_inside = None
         submesh_maps = [c_map, v_map, n_map]
