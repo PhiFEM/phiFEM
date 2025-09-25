@@ -1,3 +1,5 @@
+import os
+import warnings
 from collections.abc import Callable
 from os import PathLike
 from typing import Any, Tuple
@@ -111,6 +113,11 @@ def _compute_detection_vector(
     detection_vector[mask] = (
         detection_num_vec.array[mask] / detection_denom_vec.array[mask]
     )
+    if np.any(detection_denom_vec.array == 0.0):
+        warnings.warn(
+            "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
+            RuntimeWarning,
+        )
     return detection_vector
 
 
@@ -292,20 +299,21 @@ def _tag_cells(
     exterior_indices = np.where(detection_vector == 1.0)[0]
     interior_indices = np.where(detection_vector == -1.0)[0]
 
-    if len(interior_indices) == 0:
-        raise ValueError("No interior cells (1)!")
-    if len(cut_indices) == 0:
-        print("WARNING: no cut cells computed in the partition.")
+    if not os.environ["MODE"] == "debug":
+        if len(interior_indices) == 0:
+            raise ValueError("No interior cells (1)!")
+        if len(cut_indices) == 0:
+            print("WARNING: no cut cells computed in the partition.")
 
-    assert np.logical_not(np.isin(exterior_indices, cut_indices).any()), (
-        "The sets of outside cells and cut cells have a non-empty intersection"
-    )
-    assert np.logical_not(np.isin(interior_indices, cut_indices).any()), (
-        "The sets of inside cells and cut cells have a non-empty intersection"
-    )
-    assert np.logical_not(np.isin(exterior_indices, interior_indices).any()), (
-        "The sets of outside cells and inside cells have a non-empty intersection"
-    )
+        assert np.logical_not(np.isin(exterior_indices, cut_indices).any()), (
+            "The sets of outside cells and cut cells have a non-empty intersection"
+        )
+        assert np.logical_not(np.isin(interior_indices, cut_indices).any()), (
+            "The sets of inside cells and cut cells have a non-empty intersection"
+        )
+        assert np.logical_not(np.isin(exterior_indices, interior_indices).any()), (
+            "The sets of outside cells and inside cells have a non-empty intersection"
+        )
 
     # Create the meshtags from the indices.
     indices = np.hstack([exterior_indices, interior_indices, cut_indices]).astype(
@@ -422,24 +430,32 @@ def _tag_facets(
     facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     exterior_facets = np.setdiff1d(c2f_map[exterior_cells], facets_to_remove)
 
-    # Only exterior_facets might be empty
-    if len(interior_facets) == 0:
-        raise ValueError("No interior facets (1)!")
-    if len(cut_facets) == 0:
-        print("WARNING: no cut facet computed in the partition.")
-    if len(boundary_facets) == 0:
-        raise ValueError("No boundary facets (4)!")
+    boundary_facets = np.setdiff1d(boundary_facets, cut_facets)
 
-    # The lists must not intersect
-    names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
-    for i, facets_list_1 in enumerate([interior_facets, cut_facets, boundary_facets]):
-        for j, facets_list_2 in enumerate(
+    # Only exterior_facets might be empty
+    if not os.environ["MODE"] == "debug":
+        if len(interior_facets) == 0:
+            raise ValueError("No interior facets (1)!")
+        if len(cut_facets) == 0:
+            print("WARNING: no cut facet computed in the partition.")
+        if len(boundary_facets) == 0:
+            raise ValueError("No boundary facets (4)!")
+
+        # The lists must not intersect
+        names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
+        for i, facets_list_1 in enumerate(
             [interior_facets, cut_facets, boundary_facets]
         ):
-            if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
-                raise ValueError(
-                    names[i] + " and " + names[j] + " have a non-empty intersection!"
-                )
+            for j, facets_list_2 in enumerate(
+                [interior_facets, cut_facets, boundary_facets]
+            ):
+                if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
+                    raise ValueError(
+                        names[i]
+                        + " and "
+                        + names[j]
+                        + " have a non-empty intersection!"
+                    )
 
     # Create the meshtags from the indices.
     indices = np.hstack(
