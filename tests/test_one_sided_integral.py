@@ -16,6 +16,10 @@ Data_n° = ("Data name", "mesh name", levelset object, levelset discretization d
 """
 
 
+def levelset_1(x):
+    return x[0] + 0.35
+
+
 def integrand_1(n):
     nx = ufl.dot(ufl.as_vector((1, 0)), n)
     ny = ufl.dot(ufl.as_vector((0, 1)), n)
@@ -25,7 +29,7 @@ def integrand_1(n):
 data_1 = (
     "line_in_square_quad_-1",
     "square_quad",
-    lambda x: x[0] + 0.35,
+    levelset_1,
     -1,
     [3.0, -3.0],
     integrand_1,
@@ -33,7 +37,7 @@ data_1 = (
 data_2 = (
     "line_in_square_quad_1",
     "square_quad",
-    lambda x: x[0] + 0.35,
+    levelset_1,
     -1,
     [3.0, -3.0],
     integrand_1,
@@ -41,7 +45,7 @@ data_2 = (
 data_3 = (
     "line_in_square_quad_2",
     "square_quad",
-    lambda x: x[0] + 0.35,
+    levelset_1,
     -1,
     [3.0, -3.0],
     integrand_1,
@@ -49,11 +53,15 @@ data_3 = (
 data_4 = (
     "line_in_square_quad_3",
     "square_quad",
-    lambda x: x[0] + 0.35,
+    levelset_1,
     -1,
     [3.0, -3.0],
     integrand_1,
 )
+
+
+def levelset_2(x):
+    return ufl.conditional(abs(x[0]) > abs(x[1]), abs(x[0]), abs(x[1])) - 0.35
 
 
 def integrand_2(n):
@@ -65,7 +73,7 @@ def integrand_2(n):
 data_5 = (
     "square_in_square_quad_-1",
     "square_quad",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,
+    levelset_2,
     -1,
     [3.2, 2.4],
     integrand_2,
@@ -73,7 +81,7 @@ data_5 = (
 data_6 = (
     "square_in_square_quad_1",
     "square_quad",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,
+    levelset_2,
     1,
     [3.2, 2.4],
     integrand_2,
@@ -81,7 +89,7 @@ data_6 = (
 data_7 = (
     "square_in_square_quad_2",
     "square_quad",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,
+    levelset_2,
     2,
     [3.2, 2.4],
     integrand_2,
@@ -89,16 +97,21 @@ data_7 = (
 data_8 = (
     "square_in_square_quad_3",
     "square_quad",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.35,
+    levelset_2,
     3,
     [3.2, 2.4],
     integrand_2,
 )
 
+
+def levelset_3(x):
+    return ufl.conditional(abs(x[0]) > abs(x[1]), abs(x[0]), abs(x[1])) - 0.325
+
+
 data_9 = (
     "square_in_square_tri_-1",
     "square_tri",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325,
+    levelset_3,
     -1,
     [3.2, 2.4],
     integrand_2,
@@ -106,7 +119,7 @@ data_9 = (
 data_10 = (
     "square_in_square_tri_-1",
     "square_tri",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325,
+    levelset_3,
     1,
     [3.2, 2.4],
     integrand_2,
@@ -114,7 +127,7 @@ data_10 = (
 data_11 = (
     "square_in_square_tri_-1",
     "square_tri",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325,
+    levelset_3,
     2,
     [3.2, 2.4],
     integrand_2,
@@ -122,7 +135,7 @@ data_11 = (
 data_12 = (
     "square_in_square_tri_-1",
     "square_tri",
-    lambda x: np.maximum(np.abs(x[0]), np.abs(x[1])) - 0.325,
+    levelset_3,
     3,
     [3.2, 2.4],
     integrand_2,
