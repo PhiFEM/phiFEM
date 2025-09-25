@@ -93,9 +93,8 @@ def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
 
 
 def _compute_detection_vector(
-    discrete_levelset: Function, detection_measure: ufl.Measure
+    mesh: Mesh, discrete_levelset: Function, detection_measure: ufl.Measure
 ):
-    mesh = discrete_levelset.function_space.mesh
     # We localize at each cell via a DG0 test function.
     dg_0_element = element("DG", mesh.topology.cell_name(), 0)
     dg_0_space = dfx.fem.functionspace(mesh, dg_0_element)
@@ -106,7 +105,7 @@ def _compute_detection_vector(
     detection_num_form = dfx.fem.form(detection_num)
     detection_num_vec = assemble_vector(detection_num_form)
     # Assemble the denominator of detection
-    detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * detection_measure
+    detection_denom = inner(abs(discrete_levelset), v0) * detection_measure
     detection_denom_form = dfx.fem.form(detection_denom)
     detection_denom_vec = assemble_vector(detection_denom_form)
 
@@ -295,8 +294,9 @@ def _tag_cells(
 
     detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
 
-    detection_vector = _compute_detection_vector(discrete_levelset, detection_measure)
-
+    detection_vector = _compute_detection_vector(
+        mesh, discrete_levelset, detection_measure
+    )
     cut_indices = np.where(
         np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
     )[0]
@@ -386,7 +386,9 @@ def _tag_facets(
 
     detection_measure = ufl.Measure("ds", domain=mesh, metadata=detection_quadrature)
 
-    detection_vector = _compute_detection_vector(discrete_levelset, detection_measure)
+    detection_vector = _compute_detection_vector(
+        mesh, discrete_levelset, detection_measure
+    )
     mask_cut_indices_cells = np.logical_and(
         detection_vector > -1.0, detection_vector < 1.0
     )
@@ -518,7 +520,7 @@ def compute_tags_measures(
     Args:
         mesh: the mesh on which we compute the tags.
         levelset: the levelset function used to discriminate the cells.
-        detection_degree: the degree of the piecewise-polynomial approximation to the levelset.
+        detection_degree: the degree used in the custom quadrature rule of the detection form.
         box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
 
     Returns
@@ -529,10 +531,13 @@ def compute_tags_measures(
         The one-sided measure from outside.
         Submesh c-map, v-map and n-map.
     """
-    detection_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
-    detection_space = dfx.fem.functionspace(mesh, detection_element)
-    discrete_levelset = dfx.fem.Function(detection_space)
-    discrete_levelset.interpolate(detection_levelset)
+    levelset_analytic = callable(detection_levelset)
+
+    if levelset_analytic:
+        x_ufl = ufl.SpatialCoordinate(mesh)
+        discrete_levelset = detection_levelset(x_ufl)
+    else:
+        discrete_levelset = detection_levelset
 
     cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
 
@@ -555,9 +560,14 @@ def compute_tags_measures(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        detection_space_submesh = dfx.fem.functionspace(submesh, detection_element)
-        discrete_levelset_submesh = dfx.fem.Function(detection_space_submesh)
-        discrete_levelset_submesh.interpolate(detection_levelset)
+        if levelset_analytic:
+            x_ufl_submesh = ufl.SpatialCoordinate(submesh)
+            discrete_levelset_submesh = detection_levelset(x_ufl_submesh)
+        else:
+            levelset_element = detection_levelset.function_space.element.basix_element
+            levelset_space_submesh = dfx.fem.functionspace(submesh, levelset_element)
+            discrete_levelset_submesh = dfx.fem.Function(levelset_space_submesh)
+            discrete_levelset_submesh.interpolate(detection_levelset)
 
         cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
         facets_tags = _tag_facets(
