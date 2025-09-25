@@ -19,6 +19,11 @@ PathStr = PathLike[str] | str
 
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
+debug_mode = False
+if "MODE" in os.environ:
+    if os.environ["MODE"] == "debug":
+        debug_mode = True
+
 
 def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
     """Generate quadrature points on the reference segment.
@@ -299,7 +304,7 @@ def _tag_cells(
     exterior_indices = np.where(detection_vector == 1.0)[0]
     interior_indices = np.where(detection_vector == -1.0)[0]
 
-    if not os.environ["MODE"] == "debug":
+    if debug_mode:
         if len(interior_indices) == 0:
             raise ValueError("No interior cells (1)!")
         if len(cut_indices) == 0:
@@ -433,7 +438,7 @@ def _tag_facets(
     boundary_facets = np.setdiff1d(boundary_facets, cut_facets)
 
     # Only exterior_facets might be empty
-    if not os.environ["MODE"] == "debug":
+    if debug_mode:
         if len(interior_facets) == 0:
             raise ValueError("No interior facets (1)!")
         if len(cut_facets) == 0:
