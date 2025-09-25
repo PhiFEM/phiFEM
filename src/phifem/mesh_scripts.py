@@ -504,7 +504,7 @@ def _tag_facets(
 
 def compute_tags_measures(
     mesh: Mesh,
-    detection_levelset: NDArrayFunction,
+    detection_levelset: Any,
     detection_degree: int,
     box_mode: bool = False,
 ) -> Tuple[
