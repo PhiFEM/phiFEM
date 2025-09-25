@@ -424,6 +424,8 @@ def _tag_facets(
     facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
     exterior_facets = np.setdiff1d(c2f_map[exterior_cells], facets_to_remove)
 
+    boundary_facets = np.setdiff1d(boundary_facets, cut_facets)
+
     # Only exterior_facets might be empty
     if not os.environ["MODE"] == "debug":
         if len(interior_facets) == 0:
