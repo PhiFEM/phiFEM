@@ -1,15 +1,16 @@
 import argparse
-from basix.ufl import element, mixed_element
+import os
+
 import dolfinx as dfx
+import numpy as np
+import petsc4py.PETSc as PETSc
+import ufl
+from basix.ufl import element, mixed_element
+from data import detection_levelset, exact_solution, levelset, neumann_data, source_term
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
-import numpy as np
-import os
-import petsc4py.PETSc as PETSc
-import ufl
 
-from data import detection_levelset, levelset, source_term, neumann_data, exact_solution
 from phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
@@ -49,30 +50,34 @@ bbox = [[-1.0, -1.0], [1.0, 1.0]]
 cell_type = dfx.cpp.mesh.CellType.quadrilateral
 bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200], cell_type)
 
+cell_name = bg_mesh.topology.cell_name()
+levelset_element = element("Lagrange", cell_name, levelset_degree)
+bg_levelset_space = dfx.fem.functionspace(bg_mesh, levelset_element)
+
+detection_levelset_h = dfx.fem.Function(bg_levelset_space)
+detection_levelset_h.interpolate(detection_levelset)
+
 if mesh_type == "bg":
     cells_tags, facets_tags, _, ds, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset, 1, box_mode=True
+        bg_mesh, detection_levelset_h, 1, box_mode=True
     )
     mesh = bg_mesh
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset, 1, box_mode=False
+        bg_mesh, detection_levelset_h, 1, box_mode=False
     )
     ds = ufl.Measure("ds", domain=mesh)
 
-cell_name = mesh.topology.cell_name()
 gdim = mesh.geometry.dim
 primal_element = element("Lagrange", cell_name, primal_degree)
 auxiliary_element = element("DG", cell_name, auxiliary_degree)
 vector_element = element("Lagrange", cell_name, vector_degree, shape=(gdim,))
-levelset_element = element("Lagrange", cell_name, levelset_degree)
 mxd_element = mixed_element([primal_element, vector_element, auxiliary_element])
 
 primal_space = dfx.fem.functionspace(mesh, primal_element)
 auxiliary_space = dfx.fem.functionspace(mesh, auxiliary_element)
 vector_space = dfx.fem.functionspace(mesh, vector_element)
 mixed_space = dfx.fem.functionspace(mesh, mxd_element)
-levelset_space = dfx.fem.functionspace(mesh, levelset_element)
 
 """
 ===================
@@ -80,6 +85,7 @@ levelset_space = dfx.fem.functionspace(mesh, levelset_element)
 ===================
 """
 
+levelset_space = dfx.fem.functionspace(mesh, levelset_element)
 # Interpolation of the levelset
 phi_h = dfx.fem.Function(levelset_space)
 phi_h.interpolate(levelset)
@@ -120,7 +126,8 @@ a = (
         )
         * dx(2)
     )
-    + stab_coef * ufl.avg(h_T)
+    + stab_coef
+    * ufl.avg(h_T)
     * ufl.inner(ufl.jump(ufl.grad(u), n), ufl.jump(ufl.grad(v), n))
     * dS(3)
 )

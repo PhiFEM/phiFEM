@@ -1,14 +1,15 @@
 import argparse
-from basix.ufl import element
+import os
+
 import dolfinx as dfx
+import petsc4py.PETSc as PETSc
+import ufl
+from basix.ufl import element
+from data import detection_levelset, levelset, source_term
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
-import os
-import petsc4py.PETSc as PETSc
-import ufl
 
-from data import detection_levelset, levelset, source_term
 from phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
@@ -47,21 +48,25 @@ stab_coef = 1.0
 bbox = [[-4.5, -4.5], [4.5, 4.5]]
 bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200])
 
+cell_name = bg_mesh.topology.cell_name()
+levelset_element = element("Lagrange", cell_name, levelset_degree)
+bg_levelset_space = dfx.fem.functionspace(bg_mesh, levelset_element)
+
+detection_levelset_h = dfx.fem.Function(bg_levelset_space)
+detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
     cells_tags, facets_tags, _, ds, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset, 1, box_mode=True
+        bg_mesh, detection_levelset_h, 1, box_mode=True
     )
     mesh = bg_mesh
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset, 1, box_mode=False
+        bg_mesh, detection_levelset_h, 1, box_mode=False
     )
     ds = ufl.Measure("ds", domain=mesh)
 
-cell_name = mesh.topology.cell_name()
 primal_element = element("Lagrange", cell_name, fe_degree)
-levelset_element = element("Lagrange", cell_name, levelset_degree)
 solution_element = element("Lagrange", cell_name, solution_degree)
 
 primal_space = dfx.fem.functionspace(mesh, primal_element)

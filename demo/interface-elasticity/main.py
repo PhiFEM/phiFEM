@@ -1,18 +1,28 @@
 import argparse
-from basix.ufl import element, mixed_element
-import numpy as np
-import dolfinx as dfx
-from dolfinx.fem import assemble_scalar
-from dolfinx.fem.petsc import assemble_matrix, assemble_vector
-from dolfinx.io import XDMFFile
-from mpi4py import MPI
 import os
+
+import dolfinx as dfx
+import numpy as np
 import petsc4py.PETSc as PETSc
 import polars as pl
 import ufl
 import yaml
+from basix.ufl import element, mixed_element
+from data import (
+    E_in,
+    E_out,
+    cos_vec,
+    epsilon,
+    exact_solution,
+    levelset,
+    sigma_in,
+    sigma_out,
+)
+from dolfinx.fem import assemble_scalar
+from dolfinx.fem.petsc import assemble_matrix, assemble_vector
+from dolfinx.io import XDMFFile
+from mpi4py import MPI
 
-from data import E_in, E_out, epsilon, sigma_in, sigma_out, levelset, exact_solution, cos_vec
 from phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
@@ -98,12 +108,12 @@ mesh = dfx.mesh.create_rectangle(
     MPI.COMM_WORLD, np.asarray(bbox).T, [nx, ny], cell_type
 )
 
-results = {"dof": [],
-           "H10 relative error": [],
-           "L2 relative error": []}
+results = {"dof": [], "H10 relative error": [], "L2 relative error": []}
 for i in range(num_iterations):
-    cells_tags, facets_tags, _, ds_from_inside, ds_from_outside, _ = compute_tags_measures(
-        mesh, levelset, detection_degree, box_mode=True
+    x_ufl = ufl.SpatialCoordinate(mesh)
+    detection_levelset = levelset(x_ufl)
+    cells_tags, facets_tags, _, ds_from_inside, ds_from_outside, _ = (
+        compute_tags_measures(mesh, detection_levelset, detection_degree, box_mode=True)
     )
 
     gdim = mesh.geometry.dim
@@ -145,7 +155,6 @@ for i in range(num_iterations):
     dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
     dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 
-
     def boundary_dbc(x):
         left = np.isclose(x[0], -1.5).astype(bool)
         bottom = np.isclose(x[1], -1.5).astype(bool)
@@ -153,8 +162,9 @@ for i in range(num_iterations):
         top = np.isclose(x[1], 1.5).astype(bool)
         return left + bottom + right + top
 
-
-    boundary_dbc_facets = dfx.mesh.locate_entities_boundary(mesh, gdim - 1, boundary_dbc)
+    boundary_dbc_facets = dfx.mesh.locate_entities_boundary(
+        mesh, gdim - 1, boundary_dbc
+    )
 
     # Create a FE function from outer space
     u_dbc_in = dfx.fem.Function(primal_space)
@@ -175,8 +185,8 @@ for i in range(num_iterations):
     stiffness_in = ufl.inner(sigma_in(u_in), epsilon(v_in))
     stiffness_out = ufl.inner(sigma_out(u_out), epsilon(v_out))
 
-    coef_in = (E_in / (E_in + E_out))**2
-    coef_out = (E_out / (E_in + E_out))**2 
+    coef_in = (E_in / (E_in + E_out)) ** 2
+    coef_out = (E_out / (E_in + E_out)) ** 2
     penalization = penalization_coefficient * (
         ufl.inner(y_in + sigma_in(u_in), z_in + sigma_in(v_in)) * coef_out
         + ufl.inner(y_out + sigma_out(u_out), z_out + sigma_out(v_out)) * coef_in
@@ -187,7 +197,8 @@ for i in range(num_iterations):
         )
         + h_T ** (-2)
         * ufl.inner(
-            u_in - u_out + h_T ** (-1) * p * phi_h, v_in - v_out + h_T ** (-1) * q * phi_h
+            u_in - u_out + h_T ** (-1) * p * phi_h,
+            v_in - v_out + h_T ** (-1) * q * phi_h,
         )
     )
 
@@ -336,7 +347,9 @@ for i in range(num_iterations):
 
     # H10 error
     h10_norm_exact_solution = (
-        ufl.inner(ufl.grad(reference_exact_solution), ufl.grad(reference_exact_solution))
+        ufl.inner(
+            ufl.grad(reference_exact_solution), ufl.grad(reference_exact_solution)
+        )
         * dx
     )
     h10_norm_exact_solution = assemble_scalar(dfx.fem.form(h10_norm_exact_solution))
@@ -381,11 +394,15 @@ for i in range(num_iterations):
     df.write_csv(os.path.join(output_dir, "results.csv"))
     print(df)
 
-    if i<num_iterations-1:
+    if i < num_iterations - 1:
         mesh = dfx.mesh.refine(mesh)[0]
 
-h10_slope, _ = np.polyfit(np.log(results["dof"][:]), np.log(results["H10 relative error"][:]), 1)
-l2_slope, _ = np.polyfit(np.log(results["dof"][:]), np.log(results["L2 relative error"][:]), 1)
+h10_slope, _ = np.polyfit(
+    np.log(results["dof"][:]), np.log(results["H10 relative error"][:]), 1
+)
+l2_slope, _ = np.polyfit(
+    np.log(results["dof"][:]), np.log(results["L2 relative error"][:]), 1
+)
 
 print("H10 relative error slope:", h10_slope)
 print("L2 relative error slope:", l2_slope)

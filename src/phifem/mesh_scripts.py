@@ -93,9 +93,8 @@ def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
 
 
 def _compute_detection_vector(
-    discrete_levelset: Function, detection_measure: ufl.Measure
+    mesh: Mesh, discrete_levelset: Function, detection_measure: ufl.Measure
 ):
-    mesh = discrete_levelset.function_space.mesh
     # We localize at each cell via a DG0 test function.
     dg_0_element = element("DG", mesh.topology.cell_name(), 0)
     dg_0_space = dfx.fem.functionspace(mesh, dg_0_element)
@@ -106,7 +105,7 @@ def _compute_detection_vector(
     detection_num_form = dfx.fem.form(detection_num)
     detection_num_vec = assemble_vector(detection_num_form)
     # Assemble the denominator of detection
-    detection_denom = inner(ufl.algebra.Abs(discrete_levelset), v0) * detection_measure
+    detection_denom = inner(abs(discrete_levelset), v0) * detection_measure
     detection_denom_form = dfx.fem.form(detection_denom)
     detection_denom_vec = assemble_vector(detection_denom_form)
 
@@ -214,45 +213,69 @@ def _reshape_facets_map(f2c_connect: AdjacencyList_int32) -> npt.NDArray[np.int3
     return f2c_map
 
 
-def _transfer_cells_tags(
-    source_mesh_cells_tags: MeshTags, dest_mesh: Mesh, cmap: npt.NDArray[Any]
+def _transfer_tags(
+    source_mesh_tags: MeshTags,
+    dest_mesh: Mesh,
+    cmap: npt.NDArray[Any],
+    source_mesh: Mesh = None,
 ) -> MeshTags:
-    """Given a cells tags from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the cells tags to the destination mesh.
+    """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
 
     Args:
-        source_mesh_cells_tags: the cells tags on the source mesh.
+        source_mesh_tags: the tags on the source mesh.
         dest_mesh: the destination mesh.
         cmap: the source mesh-destination mesh cells mapping.
+        source_mesh: the source mesh mandatory to transfer facets tags.
 
     Returns:
         Cells tags on the destination mesh.
     """
-
     cdim = dest_mesh.topology.dim
-    # TODO: change this line to allow parallel computing
-    tag_values = np.unique(source_mesh_cells_tags.values)
+    fdim = cdim - 1
+    edim = source_mesh_tags.dim
 
-    list_dest_cells = []
+    if edim == cdim:
+        emap = cmap
+    elif edim == fdim:
+        if source_mesh is None:
+            raise ValueError("You must pass a source_mesh to transfer facets tags.")
+
+        source_mesh.topology.create_connectivity(fdim, cdim)
+        f2c_connect = source_mesh.topology.connectivity(fdim, cdim)
+        source_f2c_map = _reshape_facets_map(f2c_connect)
+        dest_mesh.topology.create_connectivity(cdim, fdim)
+        c2f_connect = source_mesh.topology.connectivity(cdim, fdim)
+        num_facets_per_cell = len(c2f_connect.links(0))
+        dest_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+        source_c2f_dest_map = dest_c2f_map[cmap]
+        emap = source_f2c_map[source_c2f_dest_map].reshape(-1, fdim)
+    else:
+        raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
+
+    # TODO: change this line to allow parallel computing
+    tag_values = np.unique(source_mesh_tags.values)
+
+    list_dest_entities = []
     list_markers = []
     for value in tag_values:
-        source_cells = source_mesh_cells_tags.find(value)
-        mask = np.isin(cmap, source_cells)
+        source_entities = source_mesh_tags.find(value)
+        mask = np.isin(emap, source_entities)
         dest_mesh_masked = np.where(mask)[0]
-        list_dest_cells.append(dest_mesh_masked)
+        list_dest_entities.append(dest_mesh_masked)
         list_markers.append(np.full_like(dest_mesh_masked, value))
 
-    dest_cells_indices = np.hstack(list_dest_cells).astype(np.int32)
-    dest_cells_markers = np.hstack(list_markers).astype(np.int32)
-    sorted_indices = np.argsort(dest_cells_indices)
+    dest_entities_indices = np.hstack(list_dest_entities).astype(np.int32)
+    dest_entities_markers = np.hstack(list_markers).astype(np.int32)
+    sorted_indices = np.argsort(dest_entities_indices)
 
-    dest_cells_tags = dfx.mesh.meshtags(
+    dest_entities_tags = dfx.mesh.meshtags(
         dest_mesh,
-        cdim,
-        dest_cells_indices[sorted_indices],
-        dest_cells_markers[sorted_indices],
+        edim,
+        dest_entities_indices[sorted_indices],
+        dest_entities_markers[sorted_indices],
     )
 
-    return dest_cells_tags
+    return dest_entities_tags
 
 
 def _tag_cells(
@@ -295,8 +318,9 @@ def _tag_cells(
 
     detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
 
-    detection_vector = _compute_detection_vector(discrete_levelset, detection_measure)
-
+    detection_vector = _compute_detection_vector(
+        mesh, discrete_levelset, detection_measure
+    )
     cut_indices = np.where(
         np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
     )[0]
@@ -386,7 +410,9 @@ def _tag_facets(
 
     detection_measure = ufl.Measure("ds", domain=mesh, metadata=detection_quadrature)
 
-    detection_vector = _compute_detection_vector(discrete_levelset, detection_measure)
+    detection_vector = _compute_detection_vector(
+        mesh, discrete_levelset, detection_measure
+    )
     mask_cut_indices_cells = np.logical_and(
         detection_vector > -1.0, detection_vector < 1.0
     )
@@ -502,7 +528,7 @@ def _tag_facets(
 
 def compute_tags_measures(
     mesh: Mesh,
-    detection_levelset: NDArrayFunction,
+    discrete_levelset: Any,
     detection_degree: int,
     box_mode: bool = False,
 ) -> Tuple[
@@ -518,7 +544,7 @@ def compute_tags_measures(
     Args:
         mesh: the mesh on which we compute the tags.
         levelset: the levelset function used to discriminate the cells.
-        detection_degree: the degree of the piecewise-polynomial approximation to the levelset.
+        detection_degree: the degree used in the custom quadrature rule of the detection form.
         box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
 
     Returns
@@ -529,16 +555,11 @@ def compute_tags_measures(
         The one-sided measure from outside.
         Submesh c-map, v-map and n-map.
     """
-    detection_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
-    detection_space = dfx.fem.functionspace(mesh, detection_element)
-    discrete_levelset = dfx.fem.Function(detection_space)
-    discrete_levelset.interpolate(detection_levelset)
-
     cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
+    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
     if box_mode:
         submesh = None
-        facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
         d_boundary_outside = _one_sided_edge_measure(
             mesh, integration_cells, facets_tags.find(4), 100
@@ -555,14 +576,8 @@ def compute_tags_measures(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        detection_space_submesh = dfx.fem.functionspace(submesh, detection_element)
-        discrete_levelset_submesh = dfx.fem.Function(detection_space_submesh)
-        discrete_levelset_submesh.interpolate(detection_levelset)
-
-        cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
-        facets_tags = _tag_facets(
-            submesh, cells_tags, discrete_levelset_submesh, detection_degree
-        )
+        cells_tags = _transfer_tags(cells_tags, submesh, c_map)
+        facets_tags = _transfer_tags(facets_tags, submesh, c_map, source_mesh=mesh)
         d_boundary_outside = None
         d_boundary_inside = None
         submesh_maps = [c_map, v_map, n_map]
