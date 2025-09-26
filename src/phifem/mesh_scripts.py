@@ -240,32 +240,34 @@ def _transfer_tags(
         if source_mesh is None:
             raise ValueError("You must pass a source_mesh to transfer facets tags.")
 
-        source_mesh.topology.create_connectivity(fdim, cdim)
-        f2c_connect = source_mesh.topology.connectivity(fdim, cdim)
-        source_f2c_map = _reshape_facets_map(f2c_connect)
-        dest_mesh.topology.create_connectivity(cdim, fdim)
+        source_mesh.topology.create_connectivity(cdim, fdim)
         c2f_connect = source_mesh.topology.connectivity(cdim, fdim)
         num_facets_per_cell = len(c2f_connect.links(0))
+        source_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+        dest_mesh.topology.create_connectivity(cdim, fdim)
+        c2f_connect = dest_mesh.topology.connectivity(cdim, fdim)
+        num_facets_per_cell = len(c2f_connect.links(0))
         dest_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        source_c2f_dest_map = dest_c2f_map[cmap]
-        emap = source_f2c_map[source_c2f_dest_map].reshape(-1, fdim)
+        source_c2f_dest_map = source_c2f_map[cmap]
+        source_c2f_dest_map = source_c2f_dest_map.reshape(
+            -1,
+        )
+        dest_c2f_map = dest_c2f_map.reshape(
+            -1,
+        )
+        unique_indices, sorted_indices = np.unique(dest_c2f_map, return_index=True)
+        emap = source_c2f_dest_map[sorted_indices]
     else:
         raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
 
     # TODO: change this line to allow parallel computing
-    tag_values = np.unique(source_mesh_tags.values)
+    source_tags = source_mesh_tags.values
 
-    list_dest_entities = []
-    list_markers = []
-    for value in tag_values:
-        source_entities = source_mesh_tags.find(value)
-        mask = np.isin(emap, source_entities)
-        dest_mesh_masked = np.where(mask)[0]
-        list_dest_entities.append(dest_mesh_masked)
-        list_markers.append(np.full_like(dest_mesh_masked, value))
+    dest_entities = np.arange(len(emap))
+    dest_tags = source_tags[emap]
 
-    dest_entities_indices = np.hstack(list_dest_entities).astype(np.int32)
-    dest_entities_markers = np.hstack(list_markers).astype(np.int32)
+    dest_entities_indices = np.hstack(dest_entities).astype(np.int32)
+    dest_entities_markers = np.hstack(dest_tags).astype(np.int32)
     sorted_indices = np.argsort(dest_entities_indices)
 
     dest_entities_tags = dfx.mesh.meshtags(
