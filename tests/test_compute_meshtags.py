@@ -8,7 +8,7 @@ from basix.ufl import element
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from phifem.mesh_scripts import _tag_cells, _tag_facets
+from phifem.mesh_scripts import compute_tags_measures
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
@@ -104,9 +104,12 @@ testdegrees = [1, 2, 3]
 
 testdiscretize = [True, False]
 
+testboxmode = [True, False]
+
 parent_dir = os.path.dirname(__file__)
 
 
+@pytest.mark.parametrize("box_mode", testboxmode)
 @pytest.mark.parametrize("discretize", testdiscretize)
 @pytest.mark.parametrize("detection_degree", testdegrees)
 @pytest.mark.parametrize("data_name, mesh_name, generate_levelset", testdata)
@@ -116,6 +119,7 @@ def test_compute_meshtags(
     generate_levelset,
     detection_degree,
     discretize,
+    box_mode,
     save_as_benchmark=False,
     plot=False,
 ):
@@ -125,27 +129,34 @@ def test_compute_meshtags(
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
 
+    middle = "_"
     if discretize:
-        benchmark_cells_name = data_name + "_discretized_cells_tags"
-        benchmark_facets_name = data_name + "_discretized_facets_tags"
+        middle += "discretize_"
 
+    if not box_mode:
+        middle += "submesh_"
+
+    benchmark_cells_name = data_name + middle + "cells_tags"
+    benchmark_facets_name = data_name + middle + "facets_tags"
+
+    if discretize:
         levelset = generate_levelset(np)
         cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
         cg_space = dfx.fem.functionspace(mesh, cg_element)
         levelset_test = dfx.fem.Function(cg_space)
         levelset_test.interpolate(levelset)
     else:
-        benchmark_cells_name = data_name + "_cells_tags"
-        benchmark_facets_name = data_name + "_facets_tags"
-
         x_ufl = ufl.SpatialCoordinate(mesh)
         levelset_test = generate_levelset(ufl)(x_ufl)
 
-    # Test computation of cells tags
-    cells_tags = _tag_cells(mesh, levelset_test, detection_degree)
-
-    # Test computation of facets tags when cells tags are provided
-    facets_tags = _tag_facets(mesh, cells_tags, levelset_test, detection_degree)
+    if box_mode:
+        cells_tags, facets_tags = compute_tags_measures(
+            mesh, levelset_test, detection_degree, box_mode=box_mode
+        )[:2]
+    else:
+        cells_tags, facets_tags, mesh = compute_tags_measures(
+            mesh, levelset_test, detection_degree, box_mode=box_mode
+        )[:3]
 
     # To save benchmark
     if save_as_benchmark:
@@ -194,7 +205,6 @@ def test_compute_meshtags(
             cells_tags,
             ax,
             expression_levelset=expression_levelset,
-            display_indices=False,
             linewidth=1.0,
         )
         plt.savefig(
@@ -210,7 +220,6 @@ def test_compute_meshtags(
             ax,
             expression_levelset=expression_levelset,
             linewidth=1.0,
-            display_indices=False,
         )
         plt.savefig(
             os.path.join(parent_dir, "tests_data", benchmark_facets_name + ".png"),
@@ -231,15 +240,18 @@ if __name__ == "__main__":
 
     testdata_main = testdata
     testdegrees_main = testdegrees
-    testdiscretize = [True, False]
+    testdiscretize = [False, True]
+    testboxmode = [False, True]
     for test_data in testdata_main:
         print(f"{test_data[0]}, {test_data[1]}")
         for test_degree in testdegrees_main:
             for test_discretize in testdiscretize:
-                test_compute_meshtags(
-                    *test_data,
-                    test_degree,
-                    test_discretize,
-                    save_as_benchmark=True,
-                    plot=True,
-                )
+                for test_box_mode in testboxmode:
+                    test_compute_meshtags(
+                        *test_data,
+                        test_degree,
+                        test_discretize,
+                        test_box_mode,
+                        save_as_benchmark=True,
+                        plot=False,
+                    )
