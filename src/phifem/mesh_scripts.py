@@ -213,45 +213,69 @@ def _reshape_facets_map(f2c_connect: AdjacencyList_int32) -> npt.NDArray[np.int3
     return f2c_map
 
 
-def _transfer_cells_tags(
-    source_mesh_cells_tags: MeshTags, dest_mesh: Mesh, cmap: npt.NDArray[Any]
+def _transfer_tags(
+    source_mesh_tags: MeshTags,
+    dest_mesh: Mesh,
+    cmap: npt.NDArray[Any],
+    source_mesh: Mesh = None,
 ) -> MeshTags:
-    """Given a cells tags from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the cells tags to the destination mesh.
+    """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
 
     Args:
-        source_mesh_cells_tags: the cells tags on the source mesh.
+        source_mesh_tags: the tags on the source mesh.
         dest_mesh: the destination mesh.
         cmap: the source mesh-destination mesh cells mapping.
+        source_mesh: the source mesh mandatory to transfer facets tags.
 
     Returns:
         Cells tags on the destination mesh.
     """
-
     cdim = dest_mesh.topology.dim
-    # TODO: change this line to allow parallel computing
-    tag_values = np.unique(source_mesh_cells_tags.values)
+    fdim = cdim - 1
+    edim = source_mesh_tags.dim
 
-    list_dest_cells = []
+    if edim == cdim:
+        emap = cmap
+    elif edim == fdim:
+        if source_mesh is None:
+            raise ValueError("You must pass a source_mesh to transfer facets tags.")
+
+        source_mesh.topology.create_connectivity(fdim, cdim)
+        f2c_connect = source_mesh.topology.connectivity(fdim, cdim)
+        source_f2c_map = _reshape_facets_map(f2c_connect)
+        dest_mesh.topology.create_connectivity(cdim, fdim)
+        c2f_connect = source_mesh.topology.connectivity(cdim, fdim)
+        num_facets_per_cell = len(c2f_connect.links(0))
+        dest_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+        source_c2f_dest_map = dest_c2f_map[cmap]
+        emap = source_f2c_map[source_c2f_dest_map].reshape(-1, fdim)
+    else:
+        raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
+
+    # TODO: change this line to allow parallel computing
+    tag_values = np.unique(source_mesh_tags.values)
+
+    list_dest_entities = []
     list_markers = []
     for value in tag_values:
-        source_cells = source_mesh_cells_tags.find(value)
-        mask = np.isin(cmap, source_cells)
+        source_entities = source_mesh_tags.find(value)
+        mask = np.isin(emap, source_entities)
         dest_mesh_masked = np.where(mask)[0]
-        list_dest_cells.append(dest_mesh_masked)
+        list_dest_entities.append(dest_mesh_masked)
         list_markers.append(np.full_like(dest_mesh_masked, value))
 
-    dest_cells_indices = np.hstack(list_dest_cells).astype(np.int32)
-    dest_cells_markers = np.hstack(list_markers).astype(np.int32)
-    sorted_indices = np.argsort(dest_cells_indices)
+    dest_entities_indices = np.hstack(list_dest_entities).astype(np.int32)
+    dest_entities_markers = np.hstack(list_markers).astype(np.int32)
+    sorted_indices = np.argsort(dest_entities_indices)
 
-    dest_cells_tags = dfx.mesh.meshtags(
+    dest_entities_tags = dfx.mesh.meshtags(
         dest_mesh,
-        cdim,
-        dest_cells_indices[sorted_indices],
-        dest_cells_markers[sorted_indices],
+        edim,
+        dest_entities_indices[sorted_indices],
+        dest_entities_markers[sorted_indices],
     )
 
-    return dest_cells_tags
+    return dest_entities_tags
 
 
 def _tag_cells(
