@@ -11,13 +11,12 @@ from mpi4py import MPI
 
 from phifem.mesh_scripts import compute_tags_measures
 
-"""
-Data_n° = ("Data name", "mesh name", levelset object, levelset discretization degree, "benchmark values", integrand)
-"""
 
+def generate_levelset_1(mode):
+    def levelset_1(x):
+        return x[0] + 0.35
 
-def levelset_1(x):
-    return x[0] + 0.35
+    return levelset_1
 
 
 def integrand_1(n):
@@ -27,116 +26,65 @@ def integrand_1(n):
 
 
 data_1 = (
-    "line_in_square_quad_-1",
+    "line_in_square_quad",
     "square_quad",
-    levelset_1,
-    -1,
-    [3.0, -3.0],
-    integrand_1,
-)
-data_2 = (
-    "line_in_square_quad_1",
-    "square_quad",
-    levelset_1,
-    -1,
-    [3.0, -3.0],
-    integrand_1,
-)
-data_3 = (
-    "line_in_square_quad_2",
-    "square_quad",
-    levelset_1,
-    -1,
-    [3.0, -3.0],
-    integrand_1,
-)
-data_4 = (
-    "line_in_square_quad_3",
-    "square_quad",
-    levelset_1,
-    -1,
+    generate_levelset_1,
     [3.0, -3.0],
     integrand_1,
 )
 
 
-def levelset_2(x):
-    return ufl.conditional(abs(x[0]) > abs(x[1]), abs(x[0]), abs(x[1])) - 0.35
+def generate_levelset_2(mode):
+    if mode.__name__ == "ufl":
+
+        def mode_max(x, y):
+            return ufl.conditional(x > y, x, y)
+    elif mode.__name__ == "numpy":
+
+        def mode_max(x, y):
+            return np.maximum(x, y)
+
+    def levelset_2(x):
+        return mode_max(abs(x[0]), abs(x[1])) - 0.35
+
+    return levelset_2
 
 
 def integrand_2(n):
     nx = ufl.dot(ufl.as_vector((1, 0)), n)
     ny = ufl.dot(ufl.as_vector((0, 1)), n)
-    return ufl.algebra.Abs(nx) + ufl.algebra.Abs(ny)
+    return abs(nx) + abs(ny)
 
 
-data_5 = (
-    "square_in_square_quad_-1",
+data_2 = (
+    "square_in_square_quad",
     "square_quad",
-    levelset_2,
-    -1,
-    [3.2, 2.4],
-    integrand_2,
-)
-data_6 = (
-    "square_in_square_quad_1",
-    "square_quad",
-    levelset_2,
-    1,
-    [3.2, 2.4],
-    integrand_2,
-)
-data_7 = (
-    "square_in_square_quad_2",
-    "square_quad",
-    levelset_2,
-    2,
-    [3.2, 2.4],
-    integrand_2,
-)
-data_8 = (
-    "square_in_square_quad_3",
-    "square_quad",
-    levelset_2,
-    3,
+    generate_levelset_2,
     [3.2, 2.4],
     integrand_2,
 )
 
 
-def levelset_3(x):
-    return ufl.conditional(abs(x[0]) > abs(x[1]), abs(x[0]), abs(x[1])) - 0.325
+def generate_levelset_3(mode):
+    if mode.__name__ == "ufl":
+
+        def mode_max(x, y):
+            return ufl.conditional(x > y, x, y)
+    elif mode.__name__ == "numpy":
+
+        def mode_max(x, y):
+            return np.maximum(x, y)
+
+    def levelset_3(x):
+        return mode_max(abs(x[0]), abs(x[1])) - 0.325
+
+    return levelset_3
 
 
-data_9 = (
-    "square_in_square_tri_-1",
+data_3 = (
+    "square_in_square_tri",
     "square_tri",
-    levelset_3,
-    -1,
-    [3.2, 2.4],
-    integrand_2,
-)
-data_10 = (
-    "square_in_square_tri_-1",
-    "square_tri",
-    levelset_3,
-    1,
-    [3.2, 2.4],
-    integrand_2,
-)
-data_11 = (
-    "square_in_square_tri_-1",
-    "square_tri",
-    levelset_3,
-    2,
-    [3.2, 2.4],
-    integrand_2,
-)
-data_12 = (
-    "square_in_square_tri_-1",
-    "square_tri",
-    levelset_3,
-    3,
+    generate_levelset_3,
     [3.2, 2.4],
     integrand_2,
 )
@@ -145,31 +93,28 @@ testdata = [
     data_1,
     data_2,
     data_3,
-    data_4,
-    data_5,
-    data_6,
-    data_7,
-    data_8,
-    data_9,
-    data_10,
-    data_11,
-    data_12,
 ]
+
+testdegrees = [1, 2, 3]
+testdiscretize = [True, False]
 
 parent_dir = os.path.dirname(__file__)
 
 
+@pytest.mark.parametrize("discretize", testdiscretize)
+@pytest.mark.parametrize("detection_degree", testdegrees)
 @pytest.mark.parametrize(
-    "data_name, mesh_name, levelset, discrete_levelset_degree, benchmark_values, integrand",
+    "data_name, mesh_name, generate_levelset, benchmark_values, integrand",
     testdata,
 )
 def test_one_sided_integral(
     data_name,
     mesh_name,
-    levelset,
-    discrete_levelset_degree,
+    generate_levelset,
     benchmark_values,
     integrand,
+    detection_degree,
+    discretize,
     plot=False,
 ):
     mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
@@ -177,23 +122,15 @@ def test_one_sided_integral(
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
 
-    if discrete_levelset_degree > 0:
-        cg_element = element(
-            "Lagrange", mesh.topology.cell_name(), discrete_levelset_degree
-        )
+    if discretize:
+        levelset = generate_levelset(np)
+        cg_element = element("CG", mesh.topology.cell_name(), detection_degree)
         cg_space = dfx.fem.functionspace(mesh, cg_element)
         levelset_test = dfx.fem.Function(cg_space)
         levelset_test.interpolate(levelset)
-        detection_degree = discrete_levelset_degree
-        levelset_test_cg = dfx.fem.Function(cg_space)
-        levelset_test_cg.x.array[:] = levelset_test.x.array[:]
     else:
-        detection_degree = 1
-        cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
-        cg_space = dfx.fem.functionspace(mesh, cg_element)
-        levelset_test_cg = dfx.fem.Function(cg_space)
-        levelset_test_cg.interpolate(levelset)
-        levelset_test = levelset
+        x_ufl = ufl.SpatialCoordinate(mesh)
+        levelset_test = generate_levelset(ufl)(x_ufl)
 
     cells_tags, facets_tags, _, d_from_inside, d_from_outside, _ = (
         compute_tags_measures(mesh, levelset_test, detection_degree, box_mode=True)
@@ -207,6 +144,7 @@ def test_one_sided_integral(
     val_test_mesh_out = assemble_scalar(dfx.fem.form(test_int_mesh_out))
 
     if plot:
+        levelset = generate_levelset(np)
         fig = plt.figure()
         ax = fig.subplots()
         plot_mesh_tags(
@@ -229,15 +167,14 @@ def test_one_sided_integral(
 
 if __name__ == "__main__":
     import matplotlib.pyplot as plt
-    from tags_plot.plot import plot_mesh_tags
+    from meshtagsplot import plot_mesh_tags
 
-    test_data = data_9
+    test_data = data_1
+    test_degree = 1
+    test_discretize = True
     test_one_sided_integral(
-        test_data[0],
-        test_data[1],
-        test_data[2],
-        test_data[3],
-        test_data[4],
-        test_data[5],
+        *test_data,
+        test_degree,
+        test_discretize,
         plot=True,
     )
