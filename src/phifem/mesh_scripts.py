@@ -504,7 +504,7 @@ def _tag_facets(
 
 def compute_tags_measures(
     mesh: Mesh,
-    detection_levelset: Any,
+    discrete_levelset: Any,
     detection_degree: int,
     box_mode: bool = False,
 ) -> Tuple[
@@ -531,14 +531,6 @@ def compute_tags_measures(
         The one-sided measure from outside.
         Submesh c-map, v-map and n-map.
     """
-    levelset_analytic = callable(detection_levelset)
-
-    if levelset_analytic:
-        x_ufl = ufl.SpatialCoordinate(mesh)
-        discrete_levelset = detection_levelset(x_ufl)
-    else:
-        discrete_levelset = detection_levelset
-
     cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
 
     if box_mode:
