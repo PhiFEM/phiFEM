@@ -556,10 +556,10 @@ def compute_tags_measures(
         Submesh c-map, v-map and n-map.
     """
     cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
+    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
     if box_mode:
         submesh = None
-        facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
         d_boundary_outside = _one_sided_edge_measure(
             mesh, integration_cells, facets_tags.find(4), 100
@@ -576,19 +576,8 @@ def compute_tags_measures(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        if levelset_analytic:
-            x_ufl_submesh = ufl.SpatialCoordinate(submesh)
-            discrete_levelset_submesh = detection_levelset(x_ufl_submesh)
-        else:
-            levelset_element = detection_levelset.function_space.element.basix_element
-            levelset_space_submesh = dfx.fem.functionspace(submesh, levelset_element)
-            discrete_levelset_submesh = dfx.fem.Function(levelset_space_submesh)
-            discrete_levelset_submesh.interpolate(detection_levelset)
-
-        cells_tags = _transfer_cells_tags(cells_tags, submesh, c_map)
-        facets_tags = _tag_facets(
-            submesh, cells_tags, discrete_levelset_submesh, detection_degree
-        )
+        cells_tags = _transfer_tags(cells_tags, submesh, c_map)
+        facets_tags = _transfer_tags(facets_tags, submesh, c_map, source_mesh=mesh)
         d_boundary_outside = None
         d_boundary_inside = None
         submesh_maps = [c_map, v_map, n_map]
