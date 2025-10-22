@@ -1,6 +1,6 @@
 # phiFEM: a convenience package for using $\varphi$-FEM with FEniCSx
 
-This package provides convenience tools that help with the implementation of φ-FEM schemes in the [FEniCSx](https://fenicsproject.org/) computation platform.
+This package provides convenience tools that help with the implementation of $\varphi$-FEM schemes in the [FEniCSx](https://fenicsproject.org/) computation platform.
 
 $\varphi$-FEM (or phiFEM) is an immersed boundary finite element method leveraging levelset functions to avoid the use of any non-standard finite element spaces or non-standard quadrature rules near the boundary of the domain.
 More information about φ-FEM can be found in the various publications (see e.g. [^1] and [^2]).
