@@ -13,6 +13,7 @@ from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
 from dolfinx.fem import Function
 from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
+from petsc4py import PETSc
 from ufl import inner
 
 PathStr = PathLike[str] | str
@@ -104,19 +105,34 @@ def _compute_detection_vector(
     detection_num = inner(discrete_levelset, v0) * detection_measure
     detection_num_form = dfx.fem.form(detection_num)
     detection_num_vec = assemble_vector(detection_num_form)
+    detection_num_vec.ghostUpdate(
+        addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE
+    )
+    detection_num_vec.ghostUpdate(
+        addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
+    )
     # Assemble the denominator of detection
     detection_denom = inner(abs(discrete_levelset), v0) * detection_measure
     detection_denom_form = dfx.fem.form(detection_denom)
     detection_denom_vec = assemble_vector(detection_denom_form)
-
+    detection_denom_vec.ghostUpdate(
+        addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE
+    )
+    detection_denom_vec.ghostUpdate(
+        addv=PETSc.InsertMode.INSERT, mode=PETSc.ScatterMode.FORWARD
+    )
     # detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
     # However, in practice it can happen that for a very small cut triangle, detection_denom_vec is of the order of the machine precision.
     # In this case, we set the value of detection_vector to 0.5, meaning we consider the cell as cut.
+    cdim = mesh.topology.dim
+    im = mesh.topology.index_map(cdim)
+    detection_vector = dfx.la.vector(im, dtype=np.float64)
+    detection_vector.array[: im.size_local] = 0.5
     mask = np.where(detection_denom_vec.array > 0.0)
-    detection_vector = np.full_like(detection_num_vec.array, 0.5)
-    detection_vector[mask] = (
+    detection_vector.array[mask] = (
         detection_num_vec.array[mask] / detection_denom_vec.array[mask]
     )
+    detection_vector.scatter_forward()
     if np.any(detection_denom_vec.array == 0.0):
         warnings.warn(
             "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
@@ -255,7 +271,7 @@ def _transfer_tags(
         dest_c2f_map = dest_c2f_map.reshape(
             -1,
         )
-        unique_indices, sorted_indices = np.unique(dest_c2f_map, return_index=True)
+        sorted_indices = np.unique(dest_c2f_map, return_index=True)[1]
         emap = source_c2f_dest_map[sorted_indices]
     else:
         raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
@@ -324,11 +340,11 @@ def _tag_cells(
         mesh, discrete_levelset, detection_measure
     )
     cut_indices = np.where(
-        np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
+        np.logical_and(detection_vector.array > -1.0, detection_vector.array < 1.0)
     )[0]
 
-    exterior_indices = np.where(detection_vector == 1.0)[0]
-    interior_indices = np.where(detection_vector == -1.0)[0]
+    exterior_indices = np.where(detection_vector.array == 1.0)[0]
+    interior_indices = np.where(detection_vector.array == -1.0)[0]
 
     if debug_mode:
         if len(interior_indices) == 0:
@@ -416,7 +432,7 @@ def _tag_facets(
         mesh, discrete_levelset, detection_measure
     )
     mask_cut_indices_cells = np.logical_and(
-        detection_vector > -1.0, detection_vector < 1.0
+        detection_vector.array > -1.0, detection_vector.array < 1.0
     )
     cut_indices_cells = np.where(mask_cut_indices_cells)[0]
     comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
