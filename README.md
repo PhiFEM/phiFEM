@@ -1,3 +1,7 @@
+<p align="center" width="100%">
+    <img width="33%" src="logo/Logo_PhiFEM_wide.png">
+</p>
+
 # phiFEM: a convenience package for using $\varphi$-FEM with FEniCSx
 
 This package provides convenience tools that help with the implementation of $\varphi$-FEM schemes in the [FEniCSx](https://fenicsproject.org/) computation platform.
