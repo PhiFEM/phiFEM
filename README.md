@@ -1,5 +1,5 @@
 <p align="center" width="100%">
-    <img width="33%" src="logo/Logo_PhiFEM_wide.png">
+    <img width="100%" src="logo/Logo_PhiFEM_wider.png">
 </p>
 
 # phiFEM: a convenience package for using $\varphi$-FEM with FEniCSx
