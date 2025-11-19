@@ -83,3 +83,7 @@ You should have received a copy of the GNU Lesser General Public License along w
 Raphaël Bulle ([https://rbulle.github.io](https://rbulle.github.io/))  
 Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))  
 Killian Vuillemot
+
+## Logo credit
+
+Frédérique Lecourtier ([https://mimesis.inria.fr/members/frederique-lecourtier/](https://mimesis.inria.fr/members/frederique-lecourtier/))
