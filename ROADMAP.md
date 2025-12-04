@@ -2,14 +2,15 @@
 
 ## 🏎️ Short term
 
-- Add a demo with the new Neumann scheme.
+- `███▒ 75%` Add a demo with the new Neumann scheme.
 
 ## 🐇 Midterm
 
-- Parallel support.
-- Improve mesh tagging.
+- `██▒▒ 50%` Parallel support.
+- `▒▒▒▒  0%` Improve mesh tagging.
+- `▒▒▒▒  0%` Documentation.
 
 ## 🐢 Long term
 
-- Refactoring, improve the interface with the use of classes.
-- 3D.
+- `▒▒▒▒  0%` Refactoring, improve the interface with the use of classes.
+- `▒▒▒▒  0%` 3D.
