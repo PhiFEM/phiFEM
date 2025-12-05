@@ -4,7 +4,7 @@
 
 - `███▒ 75%` Add a demo with the new Neumann scheme.
 
-## 🐇 Midterm
+## 🐇 Middle term
 
 - `██▒▒ 50%` Parallel support.
 - `▒▒▒▒  0%` Improve mesh tagging.
