@@ -117,7 +117,7 @@ def _compute_detection_vector(
     detection_vector[mask] = (
         detection_num_vec.array[mask] / detection_denom_vec.array[mask]
     )
-    if np.any(detection_denom_vec.array == 0.0):
+    if np.any(np.isclose(detection_denom_vec.array, 0.0)):
         warnings.warn(
             "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
             RuntimeWarning,
