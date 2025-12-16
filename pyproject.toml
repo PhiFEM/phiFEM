@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "phiFEM"
-version = "0.5.7"
+version = "0.5.8"
 authors = [
 	{ name="Raphaël Bulle", email="raphael.bulle@inria.fr" },
 	{ name="Michel Duprez", email="michel.duprez@inria.fr" },
@@ -15,7 +15,7 @@ maintainers = [
 ]
 description = "phiFEM: convenience tools to use the phiFEM immersed boundary finite element method with dolfinx."
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11"
 dependencies = ["fenics-dolfinx>=0.9.0"]
 classifiers = [
 	"Programming Language :: Python :: 3",
