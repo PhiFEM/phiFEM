@@ -9,7 +9,7 @@ from dolfinx.fem import assemble_scalar
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from phifem.mesh_scripts import compute_tags_measures
+from src.phifem.mesh_scripts import compute_tags_measures
 
 
 def generate_levelset_1(mode):

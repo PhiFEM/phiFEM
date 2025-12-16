@@ -8,7 +8,7 @@ from basix.ufl import element
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from phifem.mesh_scripts import compute_tags_measures
+from src.phifem.mesh_scripts import compute_tags_measures
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
@@ -79,13 +79,16 @@ data_6 = (
 
 
 def generate_levelset_7(mode):
+    def atan2(y, x):
+        if mode.__name__ == "numpy":
+            return mode.arctan2(y, x)
+        elif mode.__name__ == "ufl":
+            return mode.atan2(y, x)
+
     def levelset(x):
         val = (
             mode.sqrt(x[0] ** 2 + x[1] ** 2)
-            * (
-                abs(mode.atan2(x[1], x[0]))
-                * mode.sin(1.0 / abs(mode.atan2(x[1], x[0])))
-            )
+            * (abs(atan2(x[1], x[0])) * mode.sin(1.0 / abs(atan2(x[1], x[0]))))
             - 0.25
         )
         return val
