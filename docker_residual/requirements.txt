@@ -1,0 +1,10 @@
+adios4dolfinx
+matplotlib
+phifem
+polars
+Pyaml
+meshtagsplot
+ngsolve
+ngsPETSc
+pyvista[jupyter]
+plotly
