@@ -396,6 +396,11 @@ def _tag_facets(
     num_facets_per_cell = len(c2f_connect.links(0))
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
+    mesh.topology.create_connectivity(fdim, cdim)
+    f2c_connect = mesh.topology.connectivity(fdim, cdim)
+    c2f_connect = mesh.topology.connectivity(cdim, fdim)
+    f2c_map = _reshape_facets_map(f2c_connect)
+
     # Get tagged cells
     interior_cells = cells_tags.find(1)
     cut_cells = cells_tags.find(2)
@@ -420,20 +425,29 @@ def _tag_facets(
     detection_vector = _compute_detection_vector(
         mesh, discrete_levelset, detection_measure
     )
-    mask_cut_indices_cells = np.logical_and(
-        detection_vector.array > -1.0, detection_vector.array < 1.0
+    fdim = mesh.topology.dim - 1
+    fim = mesh.topology.index_map(fdim)
+    facets_detection_vector = dfx.la.vector(fim, dtype=np.float64)
+    # Initialize the vector at -2.0 to discard interior facets
+    facets_detection_vector.array[:] = -2.0
+    bf2c_map = f2c_map[background_mesh_boundary_facets, 0]
+    facets_detection_vector.array[background_mesh_boundary_facets] = (
+        detection_vector.array[bf2c_map]
     )
-    cut_indices_cells = np.where(mask_cut_indices_cells)[0]
-    comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
+    facets_detection_vector.scatter_forward()
 
-    cut_boundary_facets = np.intersect1d(
-        c2f_map[cut_indices_cells], background_mesh_boundary_facets
+    cut_facets_mask = np.logical_and(
+        facets_detection_vector.array > -1.0, facets_detection_vector.array < 1.0
     )
-    uncut_boundary_facets = np.intersect1d(
-        c2f_map[comp_indices_cells], background_mesh_boundary_facets
+    uncut_facets_mask = np.logical_or(
+        np.isclose(facets_detection_vector.array, -1.0),
+        np.isclose(facets_detection_vector.array, 1.0),
     )
-    uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[exterior_cells])
-    uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[interior_cells])
+    cut_bg_boundary_facets = np.where(cut_facets_mask)[0]
+    uncut_bg_boundary_facets = np.where(uncut_facets_mask)[0]
+    uncut_bg_boundary_facets = np.setdiff1d(
+        uncut_bg_boundary_facets, c2f_map[exterior_cells]
+    )
 
     # Facets shared by an interior cell and a cut cell
     interior_boundary_facets = np.intersect1d(
@@ -446,7 +460,7 @@ def _tag_facets(
     else:
         # Facets shared by an exterior cell and a cut cell
         boundary_facets = np.intersect1d(c2f_map[exterior_cells], c2f_map[cut_cells])
-        boundary_facets = np.union1d(boundary_facets, uncut_boundary_facets)
+        boundary_facets = np.union1d(boundary_facets, uncut_bg_boundary_facets)
 
     direct_interface_facets = np.intersect1d(
         c2f_map[exterior_cells], c2f_map[interior_cells]
@@ -454,9 +468,9 @@ def _tag_facets(
     # Cut facets F_h^Γ
     facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
     facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    facets_to_remove = np.union1d(facets_to_remove, uncut_boundary_facets)
+    facets_to_remove = np.union1d(facets_to_remove, uncut_bg_boundary_facets)
     cut_facets = np.setdiff1d(c2f_map[cut_cells], facets_to_remove)
-    cut_facets = np.union1d(cut_facets, cut_boundary_facets)
+    cut_facets = np.union1d(cut_facets, cut_bg_boundary_facets)
 
     # Interior facets
     facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
@@ -498,11 +512,11 @@ def _tag_facets(
     # Create the meshtags from the indices.
     indices = np.hstack(
         [
-            exterior_facets,
             interior_facets,
-            interior_boundary_facets,
             cut_facets,
+            interior_boundary_facets,
             boundary_facets,
+            exterior_facets,
             direct_interface_facets,
         ]
     ).astype(np.int32)
@@ -516,11 +530,11 @@ def _tag_facets(
     direct_interface_marker = np.full_like(direct_interface_facets, 6).astype(np.int32)
     markers = np.hstack(
         [
-            exterior_marker,
             interior_marker,
-            interior_boundary_marker,
             cut_marker,
+            interior_boundary_marker,
             boundary_marker,
+            exterior_marker,
             direct_interface_marker,
         ]
     ).astype(np.int32)
