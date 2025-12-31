@@ -2,15 +2,17 @@ import argparse
 import os
 
 import dolfinx as dfx
+import matplotlib.pyplot as plt
 import petsc4py.PETSc as PETSc
 import ufl
 from basix.ufl import element, mixed_element
 from data import detection_levelset, dirichlet_data, levelset, source_term
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
+from meshtagsplot import plot_mesh_tags
 from mpi4py import MPI
 
-from phifem.mesh_scripts import compute_tags_measures
+from src.phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
 
@@ -34,6 +36,7 @@ if not os.path.isdir(output_dir):
     print(f"{output_dir} directory not found, we create it.")
     os.mkdir(os.path.join(parent_dir, output_dir))
 
+comm = MPI.COMM_WORLD
 # Degree of uh
 primal_degree = 1
 # Degree of φh
@@ -43,7 +46,7 @@ pen_coef = 1.0
 stab_coef = 1.0
 
 bbox = [[-4.5, -4.5], [4.5, 4.5]]
-bg_mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, bbox, [200, 200])
+bg_mesh = dfx.mesh.create_rectangle(comm, bbox, [4, 4])
 
 cell_name = bg_mesh.topology.cell_name()
 levelset_element = element("Lagrange", cell_name, levelset_degree)
@@ -62,6 +65,17 @@ elif mesh_type == "sub":
         bg_mesh, detection_levelset_h, 1, box_mode=False
     )
     ds = ufl.Measure("ds", domain=mesh)
+
+rank = comm.Get_rank()
+fig = plt.figure()
+ax = fig.subplots()
+plot_mesh_tags(mesh, cells_tags, ax)
+plt.savefig(f"cells_tags_{str(rank).zfill(2)}.png", bbox_inches="tight")
+
+fig = plt.figure()
+ax = fig.subplots()
+plot_mesh_tags(mesh, facets_tags, ax, linewidth=2.0, display_indices=True)
+plt.savefig(f"facets_tags_{str(rank).zfill(2)}.png", bbox_inches="tight")
 
 primal_element = element("Lagrange", cell_name, primal_degree)
 auxiliary_element = element("Lagrange", cell_name, primal_degree)
