@@ -80,12 +80,6 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU Lesser General Public License along with `phiFEM`. If not, see [http://www.gnu.org/licenses/](http://www.gnu.org/licenses/).
 
-## Authors (alphabetical)
-
-Raphaël Bulle ([https://rbulle.github.io](https://rbulle.github.io/))  
-Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))  
-Killian Vuillemot
-
 ## Logo credit
 
 Frédérique Lecourtier ([https://mimesis.inria.fr/members/frederique-lecourtier/](https://mimesis.inria.fr/members/frederique-lecourtier/))
