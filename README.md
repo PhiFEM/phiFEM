@@ -34,34 +34,15 @@ We recommend to use `phiFEM` inside the `dolfinx` container (e.g. `ghcr.io/fenic
 ## Run the demos
 
 The demos can be found on the [phiFEM Github repository](https://github.com/PhiFEM/phiFEM).
-To run the demos you'll need to clone the repository and build and launch the container:
-
-1) Clone the phiFEM repository:
-  
-  ```bash
-  git clone https://github.com/PhiFEM/phiFEM.git
-  ```
-
-2) Build the container (you might need sudo privileges):
+To run the demos you'll need to clone the repository and launch the docker container using the above command.
+**Inside the container** navigate the demo directory and e.g. run the weak-dirichlet demo:
 
   ```bash
-  cd phifem/docker
-  bash build_image.sh
+  cd demo/weak-dirichlet/flower
+  python main bg
   ```
 
-3) Run the container (you might need sudo privileges):
-
-  ```bash
-  cd ../
-  bash run_image.sh
-  ```
-
-4) Inside the container navigate the demo directory and e.g. run the interface elasticity demo:
-
-  ```bash
-  cd demo/interface-elasticity
-  python main param1
-  ```
+> **Remark:** The `interface-elasticity` demo requires the `polars` python library (`pip install polars`).
 
 ## Run the tests
 
