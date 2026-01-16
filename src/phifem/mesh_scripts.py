@@ -370,12 +370,9 @@ def _tag_edges(
     detection_degree: int,
 ) -> MeshTags:
     """Tag the mesh edges.
-    Strictly interior edges  => tag 1
+    Strictly inside edges    => tag 1
     Cut edges                => tag 2
-    Interior boundary edges  => tag 3
-    Boundary edges (Gamma_h) => tag 4
-    Strictly exterior edges  => tag 5
-    Direct interface edges   => tag 6
+    Strictly outside edges   => tag 5
 
     Args:
         wireframe: the wireframe of the background mesh.
@@ -427,7 +424,7 @@ def _tag_edges(
     # Create the meshtags from the indices.
     indices = np.hstack([outside_indices, inside_indices, cut_indices]).astype(np.int32)
     interior_marker = np.full_like(inside_indices, 1).astype(np.int32)
-    exterior_marker = np.full_like(outside_indices, 3).astype(np.int32)
+    exterior_marker = np.full_like(outside_indices, 5).astype(np.int32)
     cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
     markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
