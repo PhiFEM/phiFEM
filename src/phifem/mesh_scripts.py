@@ -363,6 +363,84 @@ def _tag_cells(
     return cells_tags
 
 
+def _tag_edges(
+    wireframe: Mesh,
+    discrete_levelset: Function,
+    detection_degree: int,
+) -> MeshTags:
+    """Tag the mesh edges.
+    Strictly interior edges  => tag 1
+    Cut edges                => tag 2
+    Interior boundary edges  => tag 3
+    Boundary edges (Gamma_h) => tag 4
+    Strictly exterior edges  => tag 5
+    Direct interface edges   => tag 6
+
+    Args:
+        wireframe: the wireframe of the background mesh.
+        discrete_levelset: the discretization of the levelset on the wireframe.
+        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+
+    Returns:
+        The edges tags as a MeshTags object.
+    """
+    points = _reference_segment_points(detection_degree)
+    weights = np.ones_like(points[:, 0])
+
+    detection_quadrature = {
+        "quadrature_rule": "custom",
+        "quadrature_points": points,
+        "quadrature_weights": weights,
+    }
+
+    detection_measure = ufl.Measure(
+        "dx", domain=wireframe, metadata=detection_quadrature
+    )
+
+    detection_vector = _compute_detection_vector(
+        wireframe, discrete_levelset, detection_measure
+    )
+    cut_indices = np.where(
+        np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
+    )[0]
+
+    outside_indices = np.where(detection_vector == 1.0)[0]
+    inside_indices = np.where(detection_vector == -1.0)[0]
+
+    if debug_mode:
+        if len(inside_indices) == 0:
+            raise ValueError("No interior edges (1)!")
+        if len(cut_indices) == 0:
+            print("WARNING: no cut edges computed in the partition.")
+
+        assert np.logical_not(np.isin(outside_indices, cut_indices).any()), (
+            "The sets of outside edges and cut edges have a non-empty intersection"
+        )
+        assert np.logical_not(np.isin(inside_indices, cut_indices).any()), (
+            "The sets of inside edges and cut edges have a non-empty intersection"
+        )
+        assert np.logical_not(np.isin(outside_indices, inside_indices).any()), (
+            "The sets of outside edges and inside edges have a non-empty intersection"
+        )
+
+    # Create the meshtags from the indices.
+    indices = np.hstack([outside_indices, inside_indices, cut_indices]).astype(np.int32)
+    interior_marker = np.full_like(inside_indices, 1).astype(np.int32)
+    exterior_marker = np.full_like(outside_indices, 3).astype(np.int32)
+    cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
+    markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
+    sorted_indices = np.argsort(indices)
+
+    edges_tags = dfx.mesh.meshtags(
+        wireframe,
+        wireframe.topology.dim,
+        indices[sorted_indices],
+        markers[sorted_indices],
+    )
+
+    return edges_tags
+
+
 def _tag_facets(
     mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, detection_degree: int
 ) -> MeshTags:
