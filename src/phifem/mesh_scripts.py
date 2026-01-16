@@ -281,79 +281,80 @@ def _transfer_tags(
 
 
 def _tag_cells(
-    mesh: Mesh, discrete_levelset: Function, detection_degree: int
+    mesh: Mesh,
+    edges_tags: MeshTags,
 ) -> MeshTags:
-    """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
-        Strictly inside cell  => tag 1
-        Cut cell              => tag 2
-        Strictly outside cell => tag 3
+    """Tag the mesh cells.
+        If in a cell:
+            ∃ cut edge => Cut cell => tag 2
+        else:
+            ∃ inside edge => Strictly inside cell => tag 1
+        else:
+            ∃ outside edge => Strictly outside cell => tag 3
 
     Args:
         mesh: the background mesh.
-        discrete_levelset: the discretization of the levelset.
-        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        edges_tags: the mesh edges tags as a MeshTags object.
 
     Returns:
         The cells tags as a MeshTags object.
     """
 
-    # Create the custom quadrature rule.
-    # The quadrature points are evenly spaced on the boundary of the reference cell.
-    # The weights are 1.
-    cell_type = mesh.topology.cell_type.name
+    inside_edges = edges_tags.find(1)
+    cut_edges = edges_tags.find(2)
+    outside_edges = edges_tags.find(5)
 
-    if cell_type == "triangle":
-        points = _reference_triangle_boundary_points(detection_degree)
-    elif cell_type == "quadrilateral":
-        points = _reference_square_boundary_points(detection_degree)
-    else:
-        raise NotImplementedError(
-            "Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'"
-        )
-    weights = np.ones_like(points[:, 0])
+    cdim = 2
+    edim = 1
 
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
+    # mesh.topology.create_connectivity(cdim, edim)
+    mesh.topology.create_connectivity(cdim, edim)
+    # e2c_connect = mesh.topology.connectivity(cdim, edim)
+    # e2c_map = _reshape_facets_map(e2c_connect)
+    c2e_connect = mesh.topology.connectivity(cdim, edim)
 
-    detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
+    num_e_per_c = len(c2e_connect.links(0))
+    c2e_map = np.reshape(c2e_connect.array, (-1, num_e_per_c))
 
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
+    mask_cut_edges = np.isin(c2e_map, cut_edges)
+    mask_inside_edges = np.isin(c2e_map, inside_edges)
+    mask_outside_edges = np.isin(c2e_map, outside_edges)
+
+    mask_cut_cells = mask_cut_edges[:, 0] + mask_cut_edges[:, 1] + mask_cut_edges[:, 2]
+    mask_inside_cells = (
+        mask_inside_edges[:, 0] + mask_inside_edges[:, 1] + mask_inside_edges[:, 2]
+    ) * np.logical_not(mask_cut_cells)
+    mask_outside_cells = (
+        (mask_outside_edges[:, 0] + mask_outside_edges[:, 1] + mask_outside_edges[:, 2])
+        * np.logical_not(mask_cut_cells)
+        * np.logical_not(mask_inside_cells)
     )
-    cut_indices = np.where(
-        np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
-    )[0]
-
-    exterior_indices = np.where(detection_vector == 1.0)[0]
-    interior_indices = np.where(detection_vector == -1.0)[0]
+    cut_cells = np.where(mask_cut_cells)[0]
+    inside_cells = np.where(mask_inside_cells)[0]
+    outside_cells = np.where(mask_outside_cells)[0]
 
     if debug_mode:
-        if len(interior_indices) == 0:
+        if len(inside_cells) == 0:
             raise ValueError("No interior cells (1)!")
-        if len(cut_indices) == 0:
+        if len(cut_cells) == 0:
             print("WARNING: no cut cells computed in the partition.")
 
-        assert np.logical_not(np.isin(exterior_indices, cut_indices).any()), (
+        assert np.logical_not(np.isin(outside_cells, cut_cells).any()), (
             "The sets of outside cells and cut cells have a non-empty intersection"
         )
-        assert np.logical_not(np.isin(interior_indices, cut_indices).any()), (
+        assert np.logical_not(np.isin(inside_cells, cut_cells).any()), (
             "The sets of inside cells and cut cells have a non-empty intersection"
         )
-        assert np.logical_not(np.isin(exterior_indices, interior_indices).any()), (
+        assert np.logical_not(np.isin(outside_cells, inside_cells).any()), (
             "The sets of outside cells and inside cells have a non-empty intersection"
         )
 
-    # Create the meshtags from the indices.
-    indices = np.hstack([exterior_indices, interior_indices, cut_indices]).astype(
-        np.int32
-    )
-    interior_marker = np.full_like(interior_indices, 1).astype(np.int32)
-    exterior_marker = np.full_like(exterior_indices, 3).astype(np.int32)
-    cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
-    markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
+    # # Create the meshtags from the indices.
+    indices = np.hstack([outside_cells, inside_cells, cut_cells]).astype(np.int32)
+    inside_marker = np.full_like(inside_cells, 1).astype(np.int32)
+    outside_marker = np.full_like(outside_cells, 3).astype(np.int32)
+    cut_marker = np.full_like(cut_cells, 2).astype(np.int32)
+    markers = np.hstack([outside_marker, inside_marker, cut_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
 
     cells_tags = dfx.mesh.meshtags(
