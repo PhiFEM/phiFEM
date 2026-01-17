@@ -439,169 +439,102 @@ def _tag_edges(
     return edges_tags
 
 
-def _tag_facets(
-    mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, detection_degree: int
+def _complete_edges_tags(
+    mesh: Mesh,
+    cells_tags: MeshTags,
+    edges_tags: MeshTags,
 ) -> MeshTags:
-    """Tag the mesh facets.
-    Strictly interior facets  => tag 1
-    Cut facets                => tag 2
-    Interior boundary facets  => tag 3
-    Boundary facets (Gamma_h) => tag 4
-    Strictly exterior facets  => tag 5
-    Direct interface facets   => tag 6
+    """Complete the edges tags.
+    Inside boundary edges            => tag 3
+    Outside boundary edges (Gamma_h) => tag 4
+    Direct interface edges           => tag 6
 
     Args:
         mesh: the background mesh.
         cells_tags: the MeshTags object containing cells tags.
-        discrete_levelset: the discretization of the levelset.
-        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        edges_tags: the MeshTags object containing edges tags.
 
     Returns:
-        The facets tags as a MeshTags object.
+        The completed edges tags as a MeshTags object.
     """
     cdim = mesh.topology.dim
-    fdim = cdim - 1
+    edim = 1
     # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
-    mesh.topology.create_connectivity(cdim, fdim)
-    c2f_connect = mesh.topology.connectivity(cdim, fdim)
-    num_facets_per_cell = len(c2f_connect.links(0))
-    c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
+    mesh.topology.create_connectivity(cdim, edim)
+    c2e_connect = mesh.topology.connectivity(cdim, edim)
+    num_e_per_c = len(c2e_connect.links(0))
+    c2e_map = np.reshape(c2e_connect.array, (-1, num_e_per_c))
+
+    mesh.topology.create_connectivity(edim, cdim)
+    e2c_connect = mesh.topology.connectivity(edim, cdim)
+    e2c_map = _reshape_facets_map(e2c_connect)
+
+    bg_mesh_boundary_edges = dfx.mesh.locate_entities_boundary(
+        mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    cut_edges = edges_tags.find(2)
+    uncut_bg_mesh_boundary_edges = np.setdiff1d(bg_mesh_boundary_edges, cut_edges)
 
     # Get tagged cells
-    interior_cells = cells_tags.find(1)
+    inside_cells = cells_tags.find(1)
     cut_cells = cells_tags.find(2)
-    exterior_cells = cells_tags.find(3)
+    outside_cells = cells_tags.find(3)
 
-    # Check which background mesh boundary facets are cut by the interface
-    background_mesh_boundary_facets = dfx.mesh.locate_entities_boundary(
-        mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
+    direct_interface_edges = np.intersect1d(
+        c2e_map[outside_cells], c2e_map[inside_cells]
+    )
+    inside_boundary_edges = np.intersect1d(c2e_map[inside_cells], c2e_map[cut_cells])
+    edges_to_remove = np.union1d(direct_interface_edges, inside_boundary_edges)
+    outside_boundary_edges = np.intersect1d(c2e_map[outside_cells], c2e_map[cut_cells])
+
+    uncut_edge_boundary_cells = e2c_map[uncut_bg_mesh_boundary_edges][:, 0]
+    cut_cells_boundary = np.intersect1d(uncut_edge_boundary_cells, cut_cells)
+    bdy_edges_cut_cells_boundary = np.intersect1d(
+        c2e_map[cut_cells_boundary], bg_mesh_boundary_edges
+    )
+    outside_boundary_edges = np.union1d(
+        outside_boundary_edges, bdy_edges_cut_cells_boundary
     )
 
-    points = _reference_segment_points(detection_degree)
-    weights = np.ones_like(points[:, 0])
+    edges_to_remove = np.union1d(edges_to_remove, outside_boundary_edges)
 
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
-
-    detection_measure = ufl.Measure("ds", domain=mesh, metadata=detection_quadrature)
-
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
-    )
-    mask_cut_indices_cells = np.logical_and(
-        detection_vector > -1.0, detection_vector < 1.0
-    )
-    cut_indices_cells = np.where(mask_cut_indices_cells)[0]
-    comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
-
-    cut_boundary_facets = np.intersect1d(
-        c2f_map[cut_indices_cells], background_mesh_boundary_facets
-    )
-    uncut_boundary_facets = np.intersect1d(
-        c2f_map[comp_indices_cells], background_mesh_boundary_facets
-    )
-    uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[exterior_cells])
-    uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[interior_cells])
-
-    # Facets shared by an interior cell and a cut cell
-    interior_boundary_facets = np.intersect1d(
-        c2f_map[interior_cells], c2f_map[cut_cells]
-    )
-
-    # If there is no exterior_cells, the boundary facets are just the facets on the boundary of Ω_h
-    if len(exterior_cells) == 0:
-        boundary_facets = background_mesh_boundary_facets
-    else:
-        # Facets shared by an exterior cell and a cut cell
-        boundary_facets = np.intersect1d(c2f_map[exterior_cells], c2f_map[cut_cells])
-        boundary_facets = np.union1d(boundary_facets, uncut_boundary_facets)
-
-    direct_interface_facets = np.intersect1d(
-        c2f_map[exterior_cells], c2f_map[interior_cells]
-    )
-    # Cut facets F_h^Γ
-    facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
-    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    facets_to_remove = np.union1d(facets_to_remove, uncut_boundary_facets)
-    cut_facets = np.setdiff1d(c2f_map[cut_cells], facets_to_remove)
-    cut_facets = np.union1d(cut_facets, cut_boundary_facets)
-
-    # Interior facets
-    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
-    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    interior_facets = np.setdiff1d(c2f_map[interior_cells], facets_to_remove)
-
-    # Exterior facets
-    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
-    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    exterior_facets = np.setdiff1d(c2f_map[exterior_cells], facets_to_remove)
-
-    boundary_facets = np.setdiff1d(boundary_facets, cut_facets)
-
-    # Only exterior_facets might be empty
-    if debug_mode:
-        if len(interior_facets) == 0:
-            raise ValueError("No interior facets (1)!")
-        if len(cut_facets) == 0:
-            print("WARNING: no cut facet computed in the partition.")
-        if len(boundary_facets) == 0:
-            raise ValueError("No boundary facets (4)!")
-
-        # The lists must not intersect
-        names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
-        for i, facets_list_1 in enumerate(
-            [interior_facets, cut_facets, boundary_facets]
-        ):
-            for j, facets_list_2 in enumerate(
-                [interior_facets, cut_facets, boundary_facets]
-            ):
-                if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
-                    raise ValueError(
-                        names[i]
-                        + " and "
-                        + names[j]
-                        + " have a non-empty intersection!"
-                    )
+    inside_edges = np.setdiff1d(edges_tags.find(1), edges_to_remove)
+    outside_edges = np.setdiff1d(edges_tags.find(5), edges_to_remove)
 
     # Create the meshtags from the indices.
     indices = np.hstack(
         [
-            exterior_facets,
-            interior_facets,
-            interior_boundary_facets,
-            cut_facets,
-            boundary_facets,
-            direct_interface_facets,
+            outside_edges,
+            inside_edges,
+            inside_boundary_edges,
+            cut_edges,
+            outside_boundary_edges,
+            direct_interface_edges,
         ]
     ).astype(np.int32)
-    interior_marker = np.full_like(interior_facets, 1).astype(np.int32)
-    cut_marker = np.full_like(cut_facets, 2).astype(np.int32)
-    interior_boundary_marker = np.full_like(interior_boundary_facets, 3).astype(
-        np.int32
-    )
-    boundary_marker = np.full_like(boundary_facets, 4).astype(np.int32)
-    exterior_marker = np.full_like(exterior_facets, 5).astype(np.int32)
-    direct_interface_marker = np.full_like(direct_interface_facets, 6).astype(np.int32)
+    inside_marker = np.full_like(inside_edges, 1).astype(np.int32)
+    cut_marker = np.full_like(cut_edges, 2).astype(np.int32)
+    inside_boundary_marker = np.full_like(inside_boundary_edges, 3).astype(np.int32)
+    outside_boundary_marker = np.full_like(outside_boundary_edges, 4).astype(np.int32)
+    outside_marker = np.full_like(outside_edges, 5).astype(np.int32)
+    direct_interface_marker = np.full_like(direct_interface_edges, 6).astype(np.int32)
     markers = np.hstack(
         [
-            exterior_marker,
-            interior_marker,
-            interior_boundary_marker,
+            outside_marker,
+            inside_marker,
+            inside_boundary_marker,
             cut_marker,
-            boundary_marker,
+            outside_boundary_marker,
             direct_interface_marker,
         ]
     ).astype(np.int32)
     sorted_indices = np.argsort(indices)
 
-    facets_tags = dfx.mesh.meshtags(
-        mesh, fdim, indices[sorted_indices], markers[sorted_indices]
+    completed_edges_tags = dfx.mesh.meshtags(
+        mesh, 1, indices[sorted_indices], markers[sorted_indices]
     )
 
-    return facets_tags
+    return completed_edges_tags
 
 
 def compute_tags_measures(
