@@ -409,10 +409,10 @@ def _tag_edges(
         vdim = 0
 
         # Create the edges to vertices and vertices to edges mappings
-        mesh.topology.create_connectivity(edim, vdim)
-        mesh.topology.create_connectivity(vdim, edim)
-        e2v_connect = mesh.topology.connectivity(edim, vdim)
-        v2e_connect = mesh.topology.connectivity(vdim, edim)
+        wireframe.topology.create_connectivity(edim, vdim)
+        wireframe.topology.create_connectivity(vdim, edim)
+        e2v_connect = wireframe.topology.connectivity(edim, vdim)
+        v2e_connect = wireframe.topology.connectivity(vdim, edim)
         num_v_per_e = len(e2v_connect.links(0))
         e2v_map = np.reshape(e2v_connect.array, (-1, num_v_per_e))
         v2e_map, max_offset = _reshape_map(v2e_connect)

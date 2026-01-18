@@ -107,6 +107,8 @@ testdegrees = [1, 2, 3]
 
 testdiscretize = [True, False]
 
+testsingle_layer = [True, False]
+
 testboxmode = [True, False]
 
 parent_dir = os.path.dirname(__file__)
@@ -115,6 +117,7 @@ parent_dir = os.path.dirname(__file__)
 @pytest.mark.parametrize("box_mode", testboxmode)
 @pytest.mark.parametrize("discretize", testdiscretize)
 @pytest.mark.parametrize("detection_degree", testdegrees)
+@pytest.mark.parametrize("single_layer", testsingle_layer)
 @pytest.mark.parametrize("data_name, mesh_name, generate_levelset", testdata)
 def test_compute_meshtags(
     data_name,
@@ -123,6 +126,7 @@ def test_compute_meshtags(
     detection_degree,
     discretize,
     box_mode,
+    single_layer,
     save_as_benchmark=False,
     plot=False,
 ):
@@ -139,6 +143,9 @@ def test_compute_meshtags(
     if not box_mode:
         middle += "submesh_"
 
+    if single_layer:
+        middle += "single_layer_"
+
     benchmark_cells_name = data_name + middle + "cells_tags"
     benchmark_facets_name = data_name + middle + "facets_tags"
 
@@ -149,8 +156,7 @@ def test_compute_meshtags(
         levelset_test = dfx.fem.Function(cg_space)
         levelset_test.interpolate(levelset)
     else:
-        x_ufl = ufl.SpatialCoordinate(mesh)
-        levelset_test = generate_levelset(ufl)(x_ufl)
+        levelset_test = generate_levelset(ufl)
 
     if box_mode:
         cells_tags, facets_tags = compute_tags_measures(
@@ -186,7 +192,7 @@ def test_compute_meshtags(
             )
         except FileNotFoundError:
             raise FileNotFoundError(
-                "{cells_benchmark_name} not found, have you generated the benchmark ?"
+                f"{benchmark_cells_name} not found, have you generated the benchmark ?"
             )
         try:
             facets_benchmark = np.loadtxt(
@@ -195,7 +201,7 @@ def test_compute_meshtags(
             )
         except FileNotFoundError:
             raise FileNotFoundError(
-                "{facets_benchmark_name} not found, have you generated the benchmark ?"
+                f"{benchmark_facets_name} not found, have you generated the benchmark ?"
             )
 
     if plot:
@@ -244,17 +250,20 @@ if __name__ == "__main__":
     testdata_main = testdata
     testdegrees_main = testdegrees
     testdiscretize = [False, True]
+    testsingle_layer = [False, True]
     testboxmode = [False, True]
     for test_data in testdata_main:
         print(f"{test_data[0]}, {test_data[1]}")
         for test_degree in testdegrees_main:
             for test_discretize in testdiscretize:
-                for test_box_mode in testboxmode:
-                    test_compute_meshtags(
-                        *test_data,
-                        test_degree,
-                        test_discretize,
-                        test_box_mode,
-                        save_as_benchmark=True,
-                        plot=False,
-                    )
+                for test_single_layer in testsingle_layer:
+                    for test_box_mode in testboxmode:
+                        test_compute_meshtags(
+                            *test_data,
+                            test_degree,
+                            test_discretize,
+                            test_box_mode,
+                            test_single_layer,
+                            save_as_benchmark=True,
+                            plot=True,
+                        )
