@@ -143,7 +143,7 @@ def _one_sided_edge_measure(
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
-    f2c_map = _reshape_facets_map(f2c_connect)
+    f2c_map = _reshape_map(f2c_connect)[0]
 
     # Omega_h^Gamma one-sided boundary integral
     connected_cells = f2c_map[integration_facets]
@@ -188,29 +188,26 @@ def _one_sided_edge_measure(
     return measure(ind)
 
 
-def _reshape_facets_map(f2c_connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
-    """Reshape the facets-to-cells indices mapping.
+def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
+    """Reshape the connected entities mapping. The reshaped mapping cannot be used to deduce the number of neighbors.
 
     Args:
-        f2c_connect: the facets-to-cells connectivity.
+        connect: the connectivity.
 
     Returns:
-        The facets-to-cells mapping as a ndarray.
+        The mapping as a ndarray.
     """
-    f2c_array = f2c_connect.array
-    num_cells_per_facet = np.diff(f2c_connect.offsets)
-    max_cells_per_facet = num_cells_per_facet.max()
-    f2c_map = -np.ones((len(f2c_connect.offsets) - 1, max_cells_per_facet), dtype=int)
+    array = connect.array
+    num_e1_per_e2 = np.diff(connect.offsets)
+    max_offset = num_e1_per_e2.max()
+    emap = -np.ones((len(connect.offsets) - 1, max_offset), dtype=int)
 
     # Mask to select the boundary facets
-    mask = np.where(num_cells_per_facet == 1)
-    f2c_map[mask, 0] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    f2c_map[mask, 1] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    # Mask to select the interior facets
-    mask = np.where(num_cells_per_facet == 2)
-    f2c_map[mask, 0] = f2c_array[num_cells_per_facet.cumsum()[mask] - 2]
-    f2c_map[mask, 1] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    return f2c_map
+    for num in np.unique(num_e1_per_e2):
+        mask = np.where(num_e1_per_e2 == num)[0]
+        for n in range(num):
+            emap[mask, n] = array[num_e1_per_e2.cumsum()[mask] - n - 1]
+    return emap, max_offset
 
 
 def _transfer_tags(
@@ -474,6 +471,7 @@ def _tag_facets(
         if len(boundary_facets) == 0:
             raise ValueError("No boundary facets (4)!")
 
+<<<<<<< HEAD
         # The lists must not intersect
         names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
         for i, facets_list_1 in enumerate(
@@ -489,6 +487,97 @@ def _tag_facets(
                         + names[j]
                         + " have a non-empty intersection!"
                     )
+=======
+        assert np.logical_not(np.isin(outside_indices, cut_indices).any()), (
+            "The sets of outside edges and cut edges have a non-empty intersection"
+        )
+        assert np.logical_not(np.isin(inside_indices, cut_indices).any()), (
+            "The sets of inside edges and cut edges have a non-empty intersection"
+        )
+        assert np.logical_not(np.isin(outside_indices, inside_indices).any()), (
+            "The sets of outside edges and inside edges have a non-empty intersection"
+        )
+
+    # Create the meshtags from the indices.
+    indices = np.hstack([outside_indices, inside_indices, cut_indices]).astype(np.int32)
+    interior_marker = np.full_like(inside_indices, 1).astype(np.int32)
+    exterior_marker = np.full_like(outside_indices, 5).astype(np.int32)
+    cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
+    markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
+    sorted_indices = np.argsort(indices)
+
+    edges_tags = dfx.mesh.meshtags(
+        wireframe,
+        wireframe.topology.dim,
+        indices[sorted_indices],
+        markers[sorted_indices],
+    )
+
+    return edges_tags
+
+
+def _complete_edges_tags(
+    mesh: Mesh,
+    cells_tags: MeshTags,
+    edges_tags: MeshTags,
+) -> MeshTags:
+    """Complete the edges tags.
+    Inside boundary edges            => tag 3
+    Outside boundary edges (Gamma_h) => tag 4
+    Direct interface edges           => tag 6
+
+    Args:
+        mesh: the background mesh.
+        cells_tags: the MeshTags object containing cells tags.
+        edges_tags: the MeshTags object containing edges tags.
+
+    Returns:
+        The completed edges tags as a MeshTags object.
+    """
+    cdim = mesh.topology.dim
+    edim = 1
+    # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
+    mesh.topology.create_connectivity(cdim, edim)
+    c2e_connect = mesh.topology.connectivity(cdim, edim)
+    num_e_per_c = len(c2e_connect.links(0))
+    c2e_map = np.reshape(c2e_connect.array, (-1, num_e_per_c))
+
+    mesh.topology.create_connectivity(edim, cdim)
+    e2c_connect = mesh.topology.connectivity(edim, cdim)
+    e2c_map = _reshape_map(e2c_connect)[0]
+
+    bg_mesh_boundary_edges = dfx.mesh.locate_entities_boundary(
+        mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    cut_edges = edges_tags.find(2)
+    uncut_bg_mesh_boundary_edges = np.setdiff1d(bg_mesh_boundary_edges, cut_edges)
+
+    # Get tagged cells
+    inside_cells = cells_tags.find(1)
+    cut_cells = cells_tags.find(2)
+    outside_cells = cells_tags.find(3)
+
+    direct_interface_edges = np.intersect1d(
+        c2e_map[outside_cells], c2e_map[inside_cells]
+    )
+    inside_boundary_edges = np.intersect1d(c2e_map[inside_cells], c2e_map[cut_cells])
+    edges_to_remove = np.union1d(direct_interface_edges, inside_boundary_edges)
+    outside_boundary_edges = np.intersect1d(c2e_map[outside_cells], c2e_map[cut_cells])
+
+    uncut_edge_boundary_cells = e2c_map[uncut_bg_mesh_boundary_edges][:, 0]
+    cut_cells_boundary = np.intersect1d(uncut_edge_boundary_cells, cut_cells)
+    bdy_edges_cut_cells_boundary = np.intersect1d(
+        c2e_map[cut_cells_boundary], bg_mesh_boundary_edges
+    )
+    outside_boundary_edges = np.union1d(
+        outside_boundary_edges, bdy_edges_cut_cells_boundary
+    )
+
+    edges_to_remove = np.union1d(edges_to_remove, outside_boundary_edges)
+
+    inside_edges = np.setdiff1d(edges_tags.find(1), edges_to_remove)
+    outside_edges = np.setdiff1d(edges_tags.find(5), edges_to_remove)
+>>>>>>> 74e2ef7 (Generalize _reshaped_facets_map to handle any type of entities.)
 
     # Create the meshtags from the indices.
     indices = np.hstack(
