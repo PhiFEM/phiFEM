@@ -143,7 +143,7 @@ def _one_sided_edge_measure(
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
-    f2c_map = _reshape_facets_map(f2c_connect)
+    f2c_map = _reshape_map(f2c_connect)[0]
 
     # Omega_h^Gamma one-sided boundary integral
     connected_cells = f2c_map[integration_facets]
@@ -188,29 +188,26 @@ def _one_sided_edge_measure(
     return measure(ind)
 
 
-def _reshape_facets_map(f2c_connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
-    """Reshape the facets-to-cells indices mapping.
+def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
+    """Reshape the connected entities mapping. The reshaped mapping cannot be used to deduce the number of neighbors.
 
     Args:
-        f2c_connect: the facets-to-cells connectivity.
+        connect: the connectivity.
 
     Returns:
-        The facets-to-cells mapping as a ndarray.
+        The mapping as a ndarray.
     """
-    f2c_array = f2c_connect.array
-    num_cells_per_facet = np.diff(f2c_connect.offsets)
-    max_cells_per_facet = num_cells_per_facet.max()
-    f2c_map = -np.ones((len(f2c_connect.offsets) - 1, max_cells_per_facet), dtype=int)
+    array = connect.array
+    num_e1_per_e2 = np.diff(connect.offsets)
+    max_offset = num_e1_per_e2.max()
+    emap = -np.ones((len(connect.offsets) - 1, max_offset), dtype=int)
 
     # Mask to select the boundary facets
-    mask = np.where(num_cells_per_facet == 1)
-    f2c_map[mask, 0] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    f2c_map[mask, 1] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    # Mask to select the interior facets
-    mask = np.where(num_cells_per_facet == 2)
-    f2c_map[mask, 0] = f2c_array[num_cells_per_facet.cumsum()[mask] - 2]
-    f2c_map[mask, 1] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    return f2c_map
+    for num in np.unique(num_e1_per_e2):
+        mask = np.where(num_e1_per_e2 == num)[0]
+        for n in range(num):
+            emap[mask, n] = array[num_e1_per_e2.cumsum()[mask] - n - 1]
+    return emap, max_offset
 
 
 def _transfer_tags(
@@ -467,7 +464,7 @@ def _complete_edges_tags(
 
     mesh.topology.create_connectivity(edim, cdim)
     e2c_connect = mesh.topology.connectivity(edim, cdim)
-    e2c_map = _reshape_facets_map(e2c_connect)
+    e2c_map = _reshape_map(e2c_connect)[0]
 
     bg_mesh_boundary_edges = dfx.mesh.locate_entities_boundary(
         mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
