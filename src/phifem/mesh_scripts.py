@@ -252,12 +252,11 @@ def _transfer_tags(
         dest_c2f_map = dest_c2f_map.reshape(
             -1,
         )
-        unique_indices, sorted_indices = np.unique(dest_c2f_map, return_index=True)
+        sorted_indices = np.unique(dest_c2f_map, return_index=True)[1]
         emap = source_c2f_dest_map[sorted_indices]
     else:
         raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
 
-    # TODO: change this line to allow parallel computing
     source_tags = source_mesh_tags.values
 
     dest_entities = np.arange(len(emap))
@@ -595,18 +594,67 @@ def compute_tags_measures(
         The one-sided measure from outside.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
-    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+
+    # Create a wireframe mesh from mesh
+    mesh_edges = dfx.mesh.locate_entities(
+        mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    wireframe, fmap = dfx.mesh.create_submesh(mesh, 1, mesh_edges)[:2]
+
+    # Create a levelset element and function space on wireframe
+    wf_cell_name = wireframe.topology.cell_name()
+
+    if hasattr(discrete_levelset, "function_space"):
+        levelset_space = discrete_levelset.function_space
+        levelset_element = levelset_space.ufl_element()
+        wf_levelset_element = element(
+            levelset_element.family_name,
+            wf_cell_name,
+            levelset_element.degree,
+        )
+
+        wf_levelset_space = dfx.fem.functionspace(wireframe, wf_levelset_element)
+
+        num_wf_cells = wireframe.topology.index_map(1).size_global
+        wf_cells = np.arange(num_wf_cells)
+        nmm_mesh2wireframe = dfx.fem.create_interpolation_data(
+            wf_levelset_space, levelset_space, wf_cells
+        )
+        wf_levelset = dfx.fem.Function(wf_levelset_space)
+        wf_levelset.interpolate_nonmatching(
+            discrete_levelset, wf_cells, nmm_mesh2wireframe
+        )
+    else:
+        wf_levelset_element = element("Lagrange", wf_cell_name, detection_degree)
+        wf_levelset_space = dfx.fem.functionspace(wireframe, wf_levelset_element)
+        wf_levelset = dfx.fem.Function(wf_levelset_space)
+        x_ufl = ufl.SpatialCoordinate(wireframe)
+        discrete_levelset_expr = dfx.fem.Expression(
+            discrete_levelset(x_ufl), wf_levelset_space.element.interpolation_points()
+        )
+        wf_levelset.interpolate(discrete_levelset_expr)
+
+    incomplete_edges_tags = _tag_edges(
+        wireframe,
+        wf_levelset,
+        detection_degree,
+        single_cut_layer=single_cut_layer,
+    )
+    mesh_edges_tags = dfx.mesh.meshtags(
+        mesh, 1, fmap[incomplete_edges_tags.indices], incomplete_edges_tags.values
+    )
+    cells_tags = _tag_cells(mesh, mesh_edges_tags)
+    mesh_edges_tags = _complete_edges_tags(mesh, cells_tags, mesh_edges_tags)
 
     if box_mode:
         submesh = None
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
         d_boundary_outside = _one_sided_edge_measure(
-            mesh, integration_cells, facets_tags.find(4), 100
+            mesh, integration_cells, mesh_edges_tags.find(4), 100
         )
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
         d_boundary_inside = _one_sided_edge_measure(
-            mesh, integration_cells, facets_tags.find(3), 101
+            mesh, integration_cells, mesh_edges_tags.find(3), 101
         )
         submesh_maps = None
     else:
@@ -617,14 +665,16 @@ def compute_tags_measures(
         )  # type: ignore
 
         cells_tags = _transfer_tags(cells_tags, submesh, c_map)
-        facets_tags = _transfer_tags(facets_tags, submesh, c_map, source_mesh=mesh)
+        mesh_edges_tags = _transfer_tags(
+            mesh_edges_tags, submesh, c_map, source_mesh=mesh
+        )
         d_boundary_outside = None
         d_boundary_inside = None
         submesh_maps = [c_map, v_map, n_map]
 
     return (
         cells_tags,
-        facets_tags,
+        mesh_edges_tags,
         submesh,
         d_boundary_outside,
         d_boundary_inside,
