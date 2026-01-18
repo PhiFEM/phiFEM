@@ -365,6 +365,7 @@ def _tag_edges(
     wireframe: Mesh,
     discrete_levelset: Function,
     detection_degree: int,
+    single_cut_layer: bool = False,
 ) -> MeshTags:
     """Tag the mesh edges.
     Strictly inside edges    => tag 1
@@ -375,6 +376,7 @@ def _tag_edges(
         wireframe: the wireframe of the background mesh.
         discrete_levelset: the discretization of the levelset on the wireframe.
         detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        single_cut_layer: boolean, if True force cut edges to be connected to at least one interior edge.
 
     Returns:
         The edges tags as a MeshTags object.
@@ -395,12 +397,40 @@ def _tag_edges(
     detection_vector = _compute_detection_vector(
         wireframe, discrete_levelset, detection_measure
     )
+
+    outside_indices = np.where(detection_vector == 1.0)[0]
+    inside_indices = np.where(detection_vector == -1.0)[0]
+
     cut_indices = np.where(
         np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
     )[0]
 
-    outside_indices = np.where(detection_vector == 1.0)[0]
-    inside_indices = np.where(detection_vector == -1.0)[0]
+    if single_cut_layer:
+        edim = 1
+        vdim = 0
+
+        # Create the edges to vertices and vertices to edges mappings
+        mesh.topology.create_connectivity(edim, vdim)
+        mesh.topology.create_connectivity(vdim, edim)
+        e2v_connect = mesh.topology.connectivity(edim, vdim)
+        v2e_connect = mesh.topology.connectivity(vdim, edim)
+        num_v_per_e = len(e2v_connect.links(0))
+        e2v_map = np.reshape(e2v_connect.array, (-1, num_v_per_e))
+        v2e_map, max_offset = _reshape_map(v2e_connect)
+
+        # Create the edges to edges mapping
+        neighbor_map = v2e_map[e2v_map[cut_indices]]
+        neighbor_edges = np.reshape(neighbor_map, (-1, 2 * max_offset))
+
+        # Mask telling if neighbor edges are inside edges
+        mask_inside_neighbor = np.any(np.isin(neighbor_edges, inside_indices), axis=1)
+
+        # Add the cut edges with no neighbor inside to the outside edges
+        outside_indices = np.union1d(
+            outside_indices, cut_indices[~mask_inside_neighbor]
+        )
+        # Remove the cut edges with no neighbor inside from cut edges
+        cut_indices = cut_indices[mask_inside_neighbor]
 
     if debug_mode:
         if len(inside_indices) == 0:
@@ -539,6 +569,7 @@ def compute_tags_measures(
     discrete_levelset: Any,
     detection_degree: int,
     box_mode: bool = False,
+    single_cut_layer: bool = False,
 ) -> Tuple[
     MeshTags,
     MeshTags,
@@ -554,6 +585,7 @@ def compute_tags_measures(
         levelset: the levelset function used to discriminate the cells.
         detection_degree: the degree used in the custom quadrature rule of the detection form.
         box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
+        single_cut_layer: if True, force a single layer of cut edges.
 
     Returns
         The mesh/submesh cells tags.
