@@ -23,7 +23,7 @@ from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from phifem.mesh_scripts import compute_tags_measures
+from src.phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
 
@@ -110,10 +110,10 @@ mesh = dfx.mesh.create_rectangle(
 
 results = {"dof": [], "H10 relative error": [], "L2 relative error": []}
 for i in range(num_iterations):
-    x_ufl = ufl.SpatialCoordinate(mesh)
-    detection_levelset = levelset(x_ufl)
     cells_tags, facets_tags, _, ds_from_inside, ds_from_outside, _ = (
-        compute_tags_measures(mesh, detection_levelset, detection_degree, box_mode=True)
+        compute_tags_measures(
+            mesh, levelset, detection_degree, box_mode=True, single_cut_layer=True
+        )
     )
 
     gdim = mesh.geometry.dim
