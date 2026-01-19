@@ -387,7 +387,10 @@ def _tag_cells(
 
 
 def _tag_facets(
-    mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, detection_degree: int
+    mesh: Mesh,
+    cells_tags: MeshTags,
+    discrete_levelset: Function,
+    detection_degree: int,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -582,7 +585,9 @@ def compute_tags_measures(
         The one-sided measure from outside.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
+    cells_tags = _tag_cells(
+        mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
+    )
     facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
     if box_mode:
