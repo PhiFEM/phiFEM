@@ -124,7 +124,7 @@ def test_one_sided_integral(
 
     if discretize:
         levelset = generate_levelset(np)
-        cg_element = element("CG", mesh.topology.cell_name(), detection_degree)
+        cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
         cg_space = dfx.fem.functionspace(mesh, cg_element)
         levelset_test = dfx.fem.Function(cg_space)
         levelset_test.interpolate(levelset)

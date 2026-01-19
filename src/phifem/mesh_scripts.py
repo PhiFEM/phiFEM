@@ -143,7 +143,7 @@ def _one_sided_edge_measure(
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
-    f2c_map = _reshape_facets_map(f2c_connect)
+    f2c_map = _reshape_map(f2c_connect)[0]
 
     # Omega_h^Gamma one-sided boundary integral
     connected_cells = f2c_map[integration_facets]
@@ -188,29 +188,26 @@ def _one_sided_edge_measure(
     return measure(ind)
 
 
-def _reshape_facets_map(f2c_connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
-    """Reshape the facets-to-cells indices mapping.
+def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
+    """Reshape the connected entities mapping. The reshaped mapping cannot be used to deduce the number of neighbors.
 
     Args:
-        f2c_connect: the facets-to-cells connectivity.
+        connect: the connectivity.
 
     Returns:
-        The facets-to-cells mapping as a ndarray.
+        The mapping as a ndarray.
     """
-    f2c_array = f2c_connect.array
-    num_cells_per_facet = np.diff(f2c_connect.offsets)
-    max_cells_per_facet = num_cells_per_facet.max()
-    f2c_map = -np.ones((len(f2c_connect.offsets) - 1, max_cells_per_facet), dtype=int)
+    array = connect.array
+    num_e1_per_e2 = np.diff(connect.offsets)
+    max_offset = num_e1_per_e2.max()
+    emap = -np.ones((len(connect.offsets) - 1, max_offset), dtype=int)
 
     # Mask to select the boundary facets
-    mask = np.where(num_cells_per_facet == 1)
-    f2c_map[mask, 0] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    f2c_map[mask, 1] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    # Mask to select the interior facets
-    mask = np.where(num_cells_per_facet == 2)
-    f2c_map[mask, 0] = f2c_array[num_cells_per_facet.cumsum()[mask] - 2]
-    f2c_map[mask, 1] = f2c_array[num_cells_per_facet.cumsum()[mask] - 1]
-    return f2c_map
+    for num in np.unique(num_e1_per_e2):
+        mask = np.where(num_e1_per_e2 == num)[0]
+        for n in range(num):
+            emap[mask, n] = array[num_e1_per_e2.cumsum()[mask] - n - 1]
+    return emap, max_offset
 
 
 def _transfer_tags(
@@ -281,7 +278,10 @@ def _transfer_tags(
 
 
 def _tag_cells(
-    mesh: Mesh, discrete_levelset: Function, detection_degree: int
+    mesh: Mesh,
+    discrete_levelset: Function,
+    detection_degree: int,
+    single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
         Strictly inside cell  => tag 1
@@ -292,10 +292,23 @@ def _tag_cells(
         mesh: the background mesh.
         discrete_levelset: the discretization of the levelset.
         detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        single_layer_cut: boolean, if True force a single layer of cut cells.
 
     Returns:
         The cells tags as a MeshTags object.
     """
+    if single_layer_cut:
+        cdim = mesh.topology.dim
+        vdim = 0
+        # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
+        mesh.topology.create_connectivity(cdim, vdim)
+        c2v_connect = mesh.topology.connectivity(cdim, vdim)
+        num_vertices_per_cell = len(c2v_connect.links(0))
+        c2v_map = np.reshape(c2v_connect.array, (-1, num_vertices_per_cell))
+
+        mesh.topology.create_connectivity(vdim, cdim)
+        v2c_connect = mesh.topology.connectivity(vdim, cdim)
+        v2c_map, max_offset = _reshape_map(v2c_connect)
 
     # Create the custom quadrature rule.
     # The quadrature points are evenly spaced on the boundary of the reference cell.
@@ -326,9 +339,19 @@ def _tag_cells(
     cut_indices = np.where(
         np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
     )[0]
-
     exterior_indices = np.where(detection_vector == 1.0)[0]
     interior_indices = np.where(detection_vector == -1.0)[0]
+
+    if single_layer_cut:
+        neighbor_cells = np.reshape(
+            v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
+        )
+        mask_connected_cut_cells = np.any(
+            np.isin(neighbor_cells, interior_indices), axis=1
+        )
+        isolated_cut_cells = cut_indices[~mask_connected_cut_cells]
+        cut_indices = np.setdiff1d(cut_indices, isolated_cut_cells)
+        exterior_indices = np.union1d(exterior_indices, isolated_cut_cells)
 
     if debug_mode:
         if len(interior_indices) == 0:
@@ -364,7 +387,10 @@ def _tag_cells(
 
 
 def _tag_facets(
-    mesh: Mesh, cells_tags: MeshTags, discrete_levelset: Function, detection_degree: int
+    mesh: Mesh,
+    cells_tags: MeshTags,
+    discrete_levelset: Function,
+    detection_degree: int,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -533,6 +559,7 @@ def compute_tags_measures(
     discrete_levelset: Any,
     detection_degree: int,
     box_mode: bool = False,
+    single_layer_cut: bool = False,
 ) -> Tuple[
     MeshTags,
     MeshTags,
@@ -548,6 +575,7 @@ def compute_tags_measures(
         levelset: the levelset function used to discriminate the cells.
         detection_degree: the degree used in the custom quadrature rule of the detection form.
         box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
+        single_layer_cut: boolean, if True force a single layer of cut cells.
 
     Returns
         The mesh/submesh cells tags.
@@ -557,7 +585,9 @@ def compute_tags_measures(
         The one-sided measure from outside.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(mesh, discrete_levelset, detection_degree)
+    cells_tags = _tag_cells(
+        mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
+    )
     facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
     if box_mode:
