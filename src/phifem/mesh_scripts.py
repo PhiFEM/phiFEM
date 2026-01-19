@@ -308,7 +308,7 @@ def _tag_cells(
 
         mesh.topology.create_connectivity(vdim, cdim)
         v2c_connect = mesh.topology.connectivity(vdim, cdim)
-        v2c_map = _reshape_map(v2c_connect)[0]
+        v2c_map, max_offset = _reshape_map(v2c_connect)
 
     # Create the custom quadrature rule.
     # The quadrature points are evenly spaced on the boundary of the reference cell.
@@ -343,10 +343,15 @@ def _tag_cells(
     interior_indices = np.where(detection_vector == -1.0)[0]
 
     if single_layer_cut:
-        neighbor_cells = v2c_map[c2v_map[cut_indices]]
-        isolated_cut_cells = np.where(~np.isin(neighbor_cells, interior_indices))
+        neighbor_cells = np.reshape(
+            v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
+        )
+        mask_isolated_cut_cells = np.any(
+            ~np.isin(neighbor_cells, interior_indices), axis=1
+        )
+        isolated_cut_cells = cut_indices[mask_isolated_cut_cells]
         cut_indices = np.setdiff1d(cut_indices, isolated_cut_cells)
-        exterior_indices = np.union1d(interior_indices, isolated_cut_cells)
+        exterior_indices = np.union1d(exterior_indices, isolated_cut_cells)
 
     if debug_mode:
         if len(interior_indices) == 0:
@@ -551,6 +556,7 @@ def compute_tags_measures(
     discrete_levelset: Any,
     detection_degree: int,
     box_mode: bool = False,
+    single_layer_cut: bool = False,
 ) -> Tuple[
     MeshTags,
     MeshTags,
@@ -566,6 +572,7 @@ def compute_tags_measures(
         levelset: the levelset function used to discriminate the cells.
         detection_degree: the degree used in the custom quadrature rule of the detection form.
         box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
+        single_layer_cut: boolean, if True force a single layer of cut cells.
 
     Returns
         The mesh/submesh cells tags.
