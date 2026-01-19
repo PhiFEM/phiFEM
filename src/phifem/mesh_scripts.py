@@ -346,10 +346,10 @@ def _tag_cells(
         neighbor_cells = np.reshape(
             v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
         )
-        mask_isolated_cut_cells = np.any(
-            ~np.isin(neighbor_cells, interior_indices), axis=1
+        mask_connected_cut_cells = np.any(
+            np.isin(neighbor_cells, interior_indices), axis=1
         )
-        isolated_cut_cells = cut_indices[mask_isolated_cut_cells]
+        isolated_cut_cells = cut_indices[~mask_connected_cut_cells]
         cut_indices = np.setdiff1d(cut_indices, isolated_cut_cells)
         exterior_indices = np.union1d(exterior_indices, isolated_cut_cells)
 
