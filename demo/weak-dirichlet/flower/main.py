@@ -10,7 +10,7 @@ from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from phifem.mesh_scripts import compute_tags_measures
+from src.phifem.mesh_scripts import compute_tags_measures
 
 parent_dir = os.path.dirname(__file__)
 
@@ -54,12 +54,20 @@ detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
     cells_tags, facets_tags, _, ds, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset_h, 1, box_mode=True
+        bg_mesh,
+        detection_levelset_h,
+        1,
+        box_mode=True,
+        single_layer_cut=True,
     )
     mesh = bg_mesh
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset_h, 1, box_mode=False
+        bg_mesh,
+        detection_levelset_h,
+        1,
+        box_mode=False,
+        single_layer_cut=True,
     )
     ds = ufl.Measure("ds", domain=mesh)
 
