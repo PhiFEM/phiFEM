@@ -14,44 +14,74 @@ More information about $\varphi$-FEM can be found in the various publications (s
 
 ## [phiFEM Pypi webpage](https://pypi.org/project/phiFEM/)
 
-## Prerequisites
+## Dependencies
 
-- [dolfinx](https://github.com/FEniCS/dolfinx) >= 0.9.0
+See [phifem-env.yml](phifem-env.yml).
 
-## Usage
+> ⚠️ Note that all these dependencies are already included in `dolfinx` Docker container.
 
-We recommend to use `phiFEM` inside the `dolfinx` container (e.g. `ghcr.io/fenics/dolfinx/dolfinx:stable`).
+## Installation
+
+### Conda environment
+
+- Create a `phifem` Conda environment from the spec file `phifem-env.yml`:
+  ```bash
+  conda create -f phifem-env.yml
+  ```
+- Activate the `phifem` environment:
+  ```bash
+  conda activate phifem
+  ```
+
+### Docker container
+
+The `phiFEM` package can be used inside the `dolfinx` container (e.g. `ghcr.io/fenics/dolfinx/dolfinx:stable`)
 
 - Launch the `dolfinx` container in interactive mode using, e.g. [Docker](https://www.docker.com/) (see [the docker documentation](https://docs.docker.com/reference/cli/docker/container/run/) for the meaning of the different arguments):  
   ```bash
   docker run -ti -v $(pwd):/home/dolfinx/shared -w /home/dolfinx/shared dolfinx/dolfinx:stable
   ```
-- Inside the container install the phiFEM package with `pip`:  
+- Inside the container install `phiFEM` via pip:  
   ```bash
   pip install phifem
   ``` 
 
 ## Run the demos
 
-The demos can be found on the [phiFEM Github repository](https://github.com/PhiFEM/phiFEM).
-To run the demos you'll need to clone the repository and launch the docker container using the above command.
-**Inside the container** navigate the demo directory and e.g. run the weak-dirichlet demo:
+The demos can be found on the [phiFEM Github repository](https://github.com/PhiFEM/phiFEM/tree/main/demo).
+To run the demos first clone the repository.
+
+**Inside the Docker container/Conda environment:**
+
+- Install the demos dependencies:
+
+  ```bash
+  pip install polars Pyaml
+  ```
+
+- Navigate the demo directory and run it e.g.:
 
   ```bash
   cd demo/weak-dirichlet/flower
-  python main bg
+  python main.py bg
   ```
 
-> **Remark:** The `interface-elasticity` demo requires the `polars` python library (`pip install polars`).
+> ⚠️ The demo files require arguments, for more info run `python main.py -h`.
 
 ## Run the tests
 
-To run the tests, follow the steps 1 to 3 to run the demos and inside the container:
+**Inside the Docker container/Conda environment:**
 
-```bash
-cd tests
-pytest
-```
+- Install `pytest`:  
+  ```bash
+  pip install pytest
+  ```
+
+- Run the tests:  
+  ```bash
+  cd tests
+  pytest
+  ```
 
 ## License
 

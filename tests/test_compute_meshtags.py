@@ -8,7 +8,7 @@ from basix.ufl import element
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from src.phifem.mesh_scripts import compute_tags_measures
+from phifem.mesh_scripts import compute_tags_measures
 
 """
 Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
