@@ -6,4 +6,4 @@ dependencies:
   - numpy>=1.26.3
   - fenics-dolfinx>=0.9.0
   - pip:
-    - phifem==0.6.1
+    - phifem==0.7.0

@@ -18,7 +18,7 @@ More information about $\varphi$-FEM can be found in the various publications (s
 
 See [phifem-env.yml](phifem-env.yml).
 
-> ⚠️ Note that all these dependencies are already included in `dolfinx` Docker container.
+> ⚠️ Note that all these dependencies (except `phifem`) are already included in `dolfinx` Docker container.
 
 ## Installation
 
@@ -56,8 +56,9 @@ To run the demos first clone the repository.
 - Install the demos dependencies:
 
   ```bash
-  pip install polars Pyaml
+  XXX install polars Pyaml
   ```
+  with `XXX=pip` in the Docker container and `XXX=conda` in the conda environment.
 
 - Navigate the demo directory and run it e.g.:
 
@@ -74,8 +75,9 @@ To run the demos first clone the repository.
 
 - Install `pytest`:  
   ```bash
-  pip install pytest
+  XXX install pytest
   ```
+  with `XXX=pip` in the Docker container and `XXX=conda` in the Conda environment.
 
 - Run the tests:  
   ```bash

@@ -112,8 +112,8 @@ results = {"dof": [], "H10 relative error": [], "L2 relative error": []}
 for i in range(num_iterations):
     x_ufl = ufl.SpatialCoordinate(mesh)
     detection_levelset = levelset(x_ufl)
-    cells_tags, facets_tags, _, ds_from_inside, ds_from_outside, _ = (
-        compute_tags_measures(mesh, detection_levelset, detection_degree, box_mode=True)
+    cells_tags, facets_tags, _, d_bdry, _ = compute_tags_measures(
+        mesh, detection_levelset, detection_degree, box_mode=True
     )
 
     gdim = mesh.geometry.dim
@@ -230,25 +230,13 @@ for i in range(num_iterations):
         + stabilization_facets_out * dS(4)
         + stabilization_cells_in * dx(2)
         + stabilization_cells_out * dx(2)
+        + boundary_in * d_bdry(100)
+        + boundary_out * d_bdry(101)
     )
-
-    boundary_in_int = boundary_in * ds_from_inside
-    boundary_out_int = boundary_out * ds_from_outside
 
     bilinear_form = dfx.fem.form(a)
     A = assemble_matrix(bilinear_form, bcs=bcs)
     A.assemble()
-
-    bdy_in_form = dfx.fem.form(boundary_in_int)
-    A_bdy_in = assemble_matrix(bdy_in_form, bcs=bcs)
-    A_bdy_in.assemble()
-
-    bdy_out_form = dfx.fem.form(boundary_out_int)
-    A_bdy_out = assemble_matrix(bdy_out_form, bcs=bcs)
-    A_bdy_out.assemble()
-
-    A.axpy(1.0, A_bdy_in, False)
-    A.axpy(1.0, A_bdy_out, False)
 
     ksp = PETSc.KSP().create(mesh.comm)
     ksp.setType("preonly")
