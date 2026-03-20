@@ -148,6 +148,7 @@ def test_compute_meshtags(
 
     benchmark_cells_name = data_name + middle + "cells_tags"
     benchmark_facets_name = data_name + middle + "facets_tags"
+    benchmark_levelset_name = data_name + middle + "levelset"
 
     if discretize:
         levelset = generate_levelset(np)
@@ -200,7 +201,7 @@ def test_compute_meshtags(
                 delimiter=" ",
             )
         except FileNotFoundError:
-            raise FileNotFoundError(
+            print(
                 "{cells_benchmark_name} not found, have you generated the benchmark ?"
             )
         try:
@@ -209,40 +210,30 @@ def test_compute_meshtags(
                 delimiter=" ",
             )
         except FileNotFoundError:
-            raise FileNotFoundError(
+            print(
                 "{facets_benchmark_name} not found, have you generated the benchmark ?"
             )
 
     if plot:
-        expression_levelset = generate_levelset(np)
-        # For visualization purpose only
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(
+        save_levelset(
             mesh,
-            cells_tags,
-            ax,
-            expression_levelset=expression_levelset,
-            linewidth=1.0,
+            os.path.join(parent_dir, benchmark_levelset_name + ".xdmf"),
+            generate_levelset(np),
         )
-        plt.savefig(
-            os.path.join(parent_dir, "tests_data", benchmark_cells_name + ".png"),
-            dpi=500,
-            bbox_inches="tight",
+
+        save_tags(
+            mesh, os.path.join(parent_dir, benchmark_cells_name + ".xdmf"), cells_tags
         )
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(
-            mesh,
+
+        mesh_edges = dfx.mesh.locate_entities(
+            mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
+        )
+        wireframe = dfx.mesh.create_submesh(mesh, 1, mesh_edges)[0]
+
+        save_tags(
+            wireframe,
+            os.path.join(parent_dir, benchmark_facets_name + ".xdmf"),
             facets_tags,
-            ax,
-            expression_levelset=expression_levelset,
-            linewidth=1.0,
-        )
-        plt.savefig(
-            os.path.join(parent_dir, "tests_data", benchmark_facets_name + ".png"),
-            dpi=500,
-            bbox_inches="tight",
         )
 
     assert np.all(cells_tags.indices == cells_benchmark[0, :])
@@ -253,8 +244,7 @@ def test_compute_meshtags(
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    from meshtagsplot import plot_mesh_tags
+    from utils_test import save_levelset, save_tags
 
     testdata_main = testdata
     testdegrees_main = testdegrees
