@@ -208,12 +208,12 @@ for i in range(num_iterations):
         * ufl.inner(ufl.jump(sigma_in(u_in), n), ufl.jump(sigma_in(v_in), n))
     )
 
-    stabilization_cells_in = stabilization_coefficient * ufl.inner(
-        ufl.div(y_in), ufl.div(z_in)
+    stabilization_cells_in = (
+        stabilization_coefficient * h_T**2 * ufl.inner(ufl.div(y_in), ufl.div(z_in))
     )
 
-    stabilization_cells_out = stabilization_coefficient * ufl.inner(
-        ufl.div(y_out), ufl.div(z_out)
+    stabilization_cells_out = (
+        stabilization_coefficient * h_T**2 * ufl.inner(ufl.div(y_out), ufl.div(z_out))
     )
 
     stabilization_facets_out = (
@@ -252,8 +252,12 @@ for i in range(num_iterations):
     pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
     pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
-    stabilization_rhs_in = stabilization_coefficient * (ufl.inner(f, ufl.div(z_in)))
-    stabilization_rhs_out = stabilization_coefficient * (ufl.inner(f, ufl.div(z_out)))
+    stabilization_rhs_in = (
+        stabilization_coefficient * h_T**2 * (ufl.inner(f, ufl.div(z_in)))
+    )
+    stabilization_rhs_out = (
+        stabilization_coefficient * h_T**2 * (ufl.inner(f, ufl.div(z_out)))
+    )
     rhs_in = ufl.inner(f, v_in)
     rhs_out = ufl.inner(f, v_out)
 
