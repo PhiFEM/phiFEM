@@ -560,7 +560,7 @@ def _tag_facets(
 
 def compute_tags_measures(
     mesh: Mesh,
-    discrete_levelset: Any,
+    discrete_levelset: Function,
     detection_degree: int,
     box_mode: bool = False,
     single_layer_cut: bool = False,
