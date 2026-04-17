@@ -124,7 +124,7 @@ def test_one_sided_integral(
 
     if discretize:
         levelset = generate_levelset(np)
-        cg_element = element("CG", mesh.topology.cell_name(), detection_degree)
+        cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
         cg_space = dfx.fem.functionspace(mesh, cg_element)
         levelset_test = dfx.fem.Function(cg_space)
         levelset_test.interpolate(levelset)
@@ -132,31 +132,34 @@ def test_one_sided_integral(
         x_ufl = ufl.SpatialCoordinate(mesh)
         levelset_test = generate_levelset(ufl)(x_ufl)
 
-    cells_tags, facets_tags, _, d_from_inside, d_from_outside, _ = (
-        compute_tags_measures(mesh, levelset_test, detection_degree, box_mode=True)
+    cells_tags, facets_tags, _, d_bdry, _ = compute_tags_measures(
+        mesh, levelset_test, detection_degree, box_mode=True
     )
 
     n = ufl.FacetNormal(mesh)
-    test_int_mesh_in = integrand(n) * d_from_inside
+    test_int_mesh_in = integrand(n) * d_bdry(100)
     val_test_mesh_in = assemble_scalar(dfx.fem.form(test_int_mesh_in))
 
-    test_int_mesh_out = integrand(n) * d_from_outside
+    test_int_mesh_out = integrand(n) * d_bdry(101)
     val_test_mesh_out = assemble_scalar(dfx.fem.form(test_int_mesh_out))
 
     if plot:
-        levelset = generate_levelset(np)
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(
-            mesh, cells_tags, ax, expression_levelset=levelset, linewidth=0.1
+        save_levelset(
+            mesh, os.path.join(data_name + "_levelset.xdmf"), generate_levelset(np)
         )
-        plt.savefig(data_name + "_cells_tags.png", dpi=500, bbox_inches="tight")
-        fig = plt.figure()
-        ax = fig.subplots()
-        plot_mesh_tags(
-            mesh, facets_tags, ax, expression_levelset=levelset, linewidth=1.5
+
+        save_tags(mesh, os.path.join(data_name + "_cells_tags.xdmf"), cells_tags)
+
+        mesh_edges = dfx.mesh.locate_entities(
+            mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
         )
-        plt.savefig(data_name + "_facets_tags.png", dpi=500, bbox_inches="tight")
+        wireframe = dfx.mesh.create_submesh(mesh, 1, mesh_edges)[0]
+
+        save_tags(
+            wireframe,
+            os.path.join(data_name + "_facets_tags.xdmf"),
+            facets_tags,
+        )
 
         print(val_test_mesh_in)
         print(val_test_mesh_out)
@@ -166,8 +169,7 @@ def test_one_sided_integral(
 
 
 if __name__ == "__main__":
-    import matplotlib.pyplot as plt
-    from meshtagsplot import plot_mesh_tags
+    from utils_test import save_levelset, save_tags
 
     test_data = data_1
     test_degree = 1

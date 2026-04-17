@@ -56,7 +56,7 @@ detection_levelset_h = dfx.fem.Function(bg_levelset_space)
 detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
-    cells_tags, facets_tags, _, ds, _, _ = compute_tags_measures(
+    cells_tags, facets_tags, _, ds, _ = compute_tags_measures(
         bg_mesh, detection_levelset_h, 1, box_mode=True
     )
     mesh = bg_mesh

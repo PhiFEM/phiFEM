@@ -1,3 +1,7 @@
+<p align="center" width="100%">
+    <img width="100%" src="https://github.com/PhiFEM/phiFEM/raw/main/logo/Logo_PhiFEM_wider.png">
+</p>
+
 # phiFEM: a convenience package for using $\varphi$-FEM with FEniCSx
 
 This package provides convenience tools that help with the implementation of $\varphi$-FEM schemes in the [FEniCSx](https://fenicsproject.org/) computation platform.
@@ -6,65 +10,91 @@ $\varphi$-FEM (or phiFEM) is an immersed boundary finite element method leveragi
 More information about $\varphi$-FEM can be found in the various publications (see e.g. [^1] and [^2]).
 
 [^1]: M. DUPREZ and A. LOZINSKI, $\varphi$-FEM: A finite element method on domains defined by level-sets, SIAM J. Numer. Anal., 58 (2020), pp. 1008-1028, [https://epubs.siam.org/doi/10.1137/19m1248947](https://epubs.siam.org/doi/10.1137/19m1248947)  
-[^2]: S. COTIN, M. DUPREZ, V. LLERAS, A. LOZINSKI, and K. VUILLEMOT, $\varphi$-FEM: An efficient simulation tool using simple meshes for problems in structure mechanics and heat transfer, Partition of Unity Methods, (2023), pp. 191-216, [https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0](https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0),
+[^2]: S. COTIN, M. DUPREZ, V. LLERAS, A. LOZINSKI, and K. VUILLEMOT, $\varphi$-FEM: An efficient simulation tool using simple meshes for problems in structure mechanics and heat transfer, Partition of Unity Methods, (2023), pp. 191-216, [https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0](https://www.semanticscholar.org/paper/%CF%86-FEM%3A-an-efficient-simulation-tool-using-simple-in-Cotin-Duprez/82f2015ac98f66af115ae57f020b0b1a45c46ad0).
 
-## Prerequisites
+## [phiFEM Pypi webpage](https://pypi.org/project/phiFEM/)
 
-- [dolfinx](https://github.com/FEniCS/dolfinx) >= 0.9.0
+## Dependencies
 
-## Usage
+See [phifem-env.yml](phifem-env.yml).
 
-We recommend to use `phiFEM` inside the `dolfinx` container (e.g. `ghcr.io/fenics/dolfinx/dolfinx:stable`).
+> ⚠️ Note that all these dependencies (except `phifem`) are already included in `dolfinx` Docker container.
+
+## Installation
+
+### Pixi environment
+
+- Given the `pixi.lock` file in the source directory, create and run a `phifem` [Pixi](https://pixi.prefix.dev/latest/) environment via:
+  ```bash
+  pixi shell
+  ```
+
+### Conda environment
+
+- Create a `phifem` Conda environment from the spec file `phifem-env.yml`:
+  ```bash
+  conda create -f phifem-env.yml
+  ```
+- Activate the `phifem` environment:
+  ```bash
+  conda activate phifem
+  ```
+
+### Docker container
+
+The `phiFEM` package can be used inside the `dolfinx` container (e.g. `ghcr.io/fenics/dolfinx/dolfinx:stable`)
 
 - Launch the `dolfinx` container in interactive mode using, e.g. [Docker](https://www.docker.com/) (see [the docker documentation](https://docs.docker.com/reference/cli/docker/container/run/) for the meaning of the different arguments):  
   ```bash
   docker run -ti -v $(pwd):/home/dolfinx/shared -w /home/dolfinx/shared dolfinx/dolfinx:stable
   ```
-- Inside the container install the phiFEM package with `pip`:  
+- Inside the container install `phiFEM` via pip:  
   ```bash
   pip install phifem
   ``` 
 
+## Usage
+
+See [here](https://htmlpreview.github.io/?https://github.com/PhiFEM/phiFEM/blob/main/doc/usage.html).
+
 ## Run the demos
 
-The demos can be found on the [phiFEM Github repository](https://github.com/PhiFEM/phiFEM).
-To run the demos you'll need to clone the repository and build and launch the container:
+The demos can be found on the [phiFEM Github repository](https://github.com/PhiFEM/phiFEM/tree/main/demo).
+To run the demos first clone the repository.
 
-1) Clone the phiFEM repository:
-  
-  ```bash
-  git clone https://github.com/PhiFEM/phiFEM.git
-  ```
+**Inside the Docker container/Conda environment:**
 
-2) Build the container (you might need sudo privileges):
+- Install the demos dependencies:
 
   ```bash
-  cd phifem/docker
-  bash build_image.sh
+  XXX install polars Pyaml
   ```
+  with `XXX=pip` in the Docker container and `XXX=conda` in the conda environment.
 
-3) Run the container (you might need sudo privileges):
+- Navigate the demo directory and run it e.g.:
 
   ```bash
-  cd ../
-  bash run_image.sh
+  cd demo/weak-dirichlet/flower
+  python main.py bg
   ```
 
-4) Inside the container navigate the demo directory and e.g. run the interface elasticity demo:
-
-  ```bash
-  cd demo/interface-elasticity
-  python main param1
-  ```
+> ⚠️ The demo files require arguments, for more info run `python main.py -h`.
 
 ## Run the tests
 
-To run the tests, follow the steps 1 to 3 to run the demos and inside the container:
+**Inside the Docker container/Conda environment:**
 
-```bash
-cd tests
-pytest
-```
+- Install `pytest`:  
+  ```bash
+  XXX install pytest
+  ```
+  with `XXX=pip` in the Docker container and `XXX=conda` in the Conda environment.
+
+- Run the tests:  
+  ```bash
+  cd tests
+  pytest
+  ```
 
 ## License
 
@@ -74,8 +104,6 @@ This program is distributed in the hope that it will be useful, but WITHOUT ANY 
 
 You should have received a copy of the GNU Lesser General Public License along with `phiFEM`. If not, see [http://www.gnu.org/licenses/](http://www.gnu.org/licenses/).
 
-## Authors (alphabetical)
+## Logo credit
 
-Raphaël Bulle ([https://rbulle.github.io](https://rbulle.github.io/))  
-Michel Duprez ([https://michelduprez.fr/](https://michelduprez.fr/))  
-Killian Vuillemot
+Frédérique Lecourtier ([https://mimesis.inria.fr/members/frederique-lecourtier/](https://mimesis.inria.fr/members/frederique-lecourtier/))
