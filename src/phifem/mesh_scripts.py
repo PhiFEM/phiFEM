@@ -94,7 +94,7 @@ def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
 
 def _compute_detection_vector(
     mesh: Mesh, discrete_levelset: Function, detection_measure: ufl.Measure
-):
+) -> dfx.la.Vector:
     """Computes the detection vector used to discriminate inside from cut from outside cells.
 
     Args:
@@ -102,7 +102,7 @@ def _compute_detection_vector(
         discrete_levelset: the levelset used for the detection.
         detection_measure: the integration measure used to evaluate the levelset on the cells.
 
-    Return: the detection vector as a numpy array.
+    Return: the detection vector as dolfinx.la.Vector.
     """
     # We localize at each cell via a DG0 test function.
     dg_0_element = element("DG", mesh.topology.cell_name(), 0)
@@ -293,8 +293,7 @@ def _transfer_tags(
 
 def _tag_cells(
     mesh: Mesh,
-    discrete_levelset: Function,
-    detection_degree: int,
+    detection_vector: dfx.la.Vector,
     single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
@@ -324,32 +323,6 @@ def _tag_cells(
         v2c_connect = mesh.topology.connectivity(vdim, cdim)
         v2c_map, max_offset = _reshape_map(v2c_connect)
 
-    # Create the custom quadrature rule.
-    # The quadrature points are evenly spaced on the boundary of the reference cell.
-    # The weights are 1.
-    cell_type = mesh.topology.cell_type.name
-
-    if cell_type == "triangle":
-        points = _reference_triangle_boundary_points(detection_degree)
-    elif cell_type == "quadrilateral":
-        points = _reference_square_boundary_points(detection_degree)
-    else:
-        raise NotImplementedError(
-            "Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'"
-        )
-    weights = np.ones_like(points[:, 0])
-
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
-
-    detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
-
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
-    )
     cut_indices = np.where(
         np.logical_and(detection_vector.array > -1.0, detection_vector.array < 1.0)
     )[0]
@@ -404,8 +377,7 @@ def _tag_cells(
 def _tag_facets(
     mesh: Mesh,
     cells_tags: MeshTags,
-    discrete_levelset: Function,
-    detection_degree: int,
+    detection_vector: dfx.la.Vector,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -447,20 +419,6 @@ def _tag_facets(
         mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
     )
 
-    points = _reference_segment_points(detection_degree)
-    weights = np.ones_like(points[:, 0])
-
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
-
-    detection_measure = ufl.Measure("ds", domain=mesh, metadata=detection_quadrature)
-
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
-    )
     fdim = mesh.topology.dim - 1
     fim = mesh.topology.index_map(fdim)
     facets_detection_vector = dfx.la.vector(fim, dtype=np.float64)
@@ -583,6 +541,37 @@ def _tag_facets(
     return facets_tags
 
 
+def _compute_detection_measure(
+    mesh: Mesh, detection_degree: int, cell_name: str, measure_type: str
+) -> ufl.Measure:
+    # Create the custom quadrature rule.
+    # The quadrature points are evenly spaced on the boundary of the reference cell.
+    # The weights are 1.
+    if cell_name == "segment":
+        points = _reference_segment_points(detection_degree)
+        weights = np.ones_like(points[:, 0])
+    elif cell_name == "triangle":
+        points = _reference_triangle_boundary_points(detection_degree)
+    elif cell_name == "quadrilateral":
+        points = _reference_square_boundary_points(detection_degree)
+    else:
+        raise NotImplementedError(
+            "Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'"
+        )
+    weights = np.ones_like(points[:, 0])
+
+    detection_quadrature = {
+        "quadrature_rule": "custom",
+        "quadrature_points": points,
+        "quadrature_weights": weights,
+    }
+
+    detection_measure = ufl.Measure(
+        measure_type, domain=mesh, metadata=detection_quadrature
+    )
+    return detection_measure
+
+
 def compute_tags_measures(
     mesh: Mesh,
     discrete_levelset: Function,
@@ -612,10 +601,29 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(
-        mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
+    cell_name = mesh.topology.cell_type.name
+
+    cells_detection_measure = _compute_detection_measure(
+        mesh, detection_degree, cell_name=cell_name, measure_type="dx"
     )
-    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+
+    cells_detection_vector = _compute_detection_vector(
+        mesh, discrete_levelset, cells_detection_measure
+    )
+
+    cells_tags = _tag_cells(
+        mesh, cells_detection_vector, single_layer_cut=single_layer_cut
+    )
+
+    facets_detection_measure = _compute_detection_measure(
+        mesh, detection_degree, cell_name="segment", measure_type="ds"
+    )
+
+    facets_detection_vector = _compute_detection_vector(
+        mesh, discrete_levelset, facets_detection_measure
+    )
+
+    facets_tags = _tag_facets(mesh, cells_tags, facets_detection_vector)
 
     if box_mode:
         submesh = None
