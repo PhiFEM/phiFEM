@@ -22,6 +22,13 @@ See [phifem-env.yml](phifem-env.yml).
 
 ## Installation
 
+### Pixi environment
+
+- Given the `pixi.lock` file in the source directory, create and run a `phifem` [Pixi](https://pixi.prefix.dev/latest/) environment via:
+  ```bash
+  pixi shell
+  ```
+
 ### Conda environment
 
 - Create a `phifem` Conda environment from the spec file `phifem-env.yml`:
