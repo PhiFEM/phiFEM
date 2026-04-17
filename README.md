@@ -55,7 +55,7 @@ The `phiFEM` package can be used inside the `dolfinx` container (e.g. `ghcr.io/f
 
 ## Usage
 
-See [here]().
+See [here](https://htmlpreview.github.io/?https://github.com/PhiFEM/phiFEM/blob/main/doc/usage.html).
 
 ## Run the demos
 
