@@ -407,7 +407,7 @@ def _tag_facets(
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
-    f2c_map = _reshape_facets_map(f2c_connect)
+    f2c_map = _reshape_map(f2c_connect)
 
     # Get tagged cells
     interior_cells = cells_tags.find(1)
@@ -424,7 +424,7 @@ def _tag_facets(
     facets_detection_vector = dfx.la.vector(fim, dtype=np.float64)
     # Initialize the vector at -2.0 to discard interior facets
     facets_detection_vector.array[:] = -2.0
-    bf2c_map = f2c_map[background_mesh_boundary_facets, 0]
+    bf2c_map = f2c_map[0][background_mesh_boundary_facets, 0]
     facets_detection_vector.array[background_mesh_boundary_facets] = (
         detection_vector.array[bf2c_map]
     )
