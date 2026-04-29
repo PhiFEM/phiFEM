@@ -134,7 +134,7 @@ def _compute_detection_vector(
             RuntimeWarning,
         )
     detection_vector.scatter_forward()
-    return detection_vector.array
+    return detection_vector
 
 
 def _compute_integration_entities(
@@ -289,7 +289,7 @@ def _tag_cells(
     discrete_levelset: Function,
     detection_degree: int,
     single_layer_cut: bool = False,
-) -> MeshTags:
+) -> dfx.la.Vector:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
         Strictly inside cell  => tag 1
         Cut cell              => tag 2
@@ -302,7 +302,7 @@ def _tag_cells(
         single_layer_cut: boolean, if True force a single layer of cut cells.
 
     Returns:
-        The cells tags as a MeshTags object.
+        The cells markers as a dfx.la.Vector object.
     """
     if single_layer_cut:
         cdim = mesh.topology.dim
@@ -344,10 +344,12 @@ def _tag_cells(
         mesh, discrete_levelset, detection_measure
     )
     cut_indices = np.where(
-        np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
+        np.logical_and(
+            detection_vector.array[:] > -1.0, detection_vector.array[:] < 1.0
+        )
     )[0]
-    exterior_indices = np.where(detection_vector == 1.0)[0]
-    interior_indices = np.where(detection_vector == -1.0)[0]
+    exterior_indices = np.where(np.isclose(detection_vector.array[:], 1.0))[0]
+    interior_indices = np.where(np.isclose(detection_vector.array[:], -1.0))[0]
 
     if single_layer_cut:
         neighbor_cells = np.reshape(
@@ -375,30 +377,21 @@ def _tag_cells(
         assert np.logical_not(np.isin(exterior_indices, interior_indices).any()), (
             "The sets of outside cells and inside cells have a non-empty intersection"
         )
+    cells_markers = dfx.la.vector(detection_vector.index_map)
+    cells_markers.array[interior_indices] = 1
+    cells_markers.array[cut_indices] = 2
+    cells_markers.array[exterior_indices] = 3
+    cells_markers.scatter_forward()
 
-    # Create the meshtags from the indices.
-    indices = np.hstack([exterior_indices, interior_indices, cut_indices]).astype(
-        np.int32
-    )
-    interior_marker = np.full_like(interior_indices, 1).astype(np.int32)
-    exterior_marker = np.full_like(exterior_indices, 3).astype(np.int32)
-    cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
-    markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
-    sorted_indices = np.argsort(indices)
-
-    cells_tags = dfx.mesh.meshtags(
-        mesh, mesh.topology.dim, indices[sorted_indices], markers[sorted_indices]
-    )
-
-    return cells_tags
+    return cells_markers
 
 
 def _tag_facets(
     mesh: Mesh,
-    cells_tags: MeshTags,
+    cells_markers: dfx.la.Vector,
     discrete_levelset: Function,
     detection_degree: int,
-) -> MeshTags:
+) -> dfx.la.Vector:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
     Cut facets                => tag 2
@@ -409,12 +402,12 @@ def _tag_facets(
 
     Args:
         mesh: the background mesh.
-        cells_tags: the MeshTags object containing cells tags.
+        cells_markers: the vector storing the cells markers.
         discrete_levelset: the discretization of the levelset.
         detection_degree: the degree of the custom quadrature rule used to detect cut entities.
 
     Returns:
-        The facets tags as a MeshTags object.
+        The facets markers as a dfx.la.Vector object.
     """
     cdim = mesh.topology.dim
     fdim = cdim - 1
@@ -425,9 +418,9 @@ def _tag_facets(
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
     # Get tagged cells
-    interior_cells = cells_tags.find(1)
-    cut_cells = cells_tags.find(2)
-    exterior_cells = cells_tags.find(3)
+    interior_cells = np.where(cells_markers.array[:] == 1)
+    cut_cells = np.where(cells_markers.array[:] == 2)
+    exterior_cells = np.where(cells_markers.array[:] == 3)
 
     # Check which background mesh boundary facets are cut by the interface
     background_mesh_boundary_facets = dfx.mesh.locate_entities_boundary(
@@ -449,7 +442,7 @@ def _tag_facets(
         mesh, discrete_levelset, detection_measure
     )
     mask_cut_indices_cells = np.logical_and(
-        detection_vector > -1.0, detection_vector < 1.0
+        detection_vector.array[:] > -1.0, detection_vector.array[:] < 1.0
     )
     cut_indices_cells = np.where(mask_cut_indices_cells)[0]
     comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
@@ -523,18 +516,6 @@ def _tag_facets(
                         + " have a non-empty intersection!"
                     )
 
-    # Create the meshtags from the indices.
-    indices = np.hstack(
-        [
-            exterior_facets,
-            interior_facets,
-            interior_boundary_facets,
-            cut_facets,
-            boundary_facets,
-            direct_interface_facets,
-        ]
-    ).astype(np.int32)
-
     # Allocate distributed vectors supporting facets markers.
     all_facets = dfx.mesh.locate_entities(
         mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
@@ -547,24 +528,14 @@ def _tag_facets(
     facets_markers = dfx.la.vector(imap)
 
     facets_markers.array[interior_facets] = 1
-    facets_markers.scatter_forward()
     facets_markers.array[cut_facets] = 2
-    facets_markers.scatter_forward()
     facets_markers.array[interior_boundary_facets] = 3
-    facets_markers.scatter_forward()
     facets_markers.array[boundary_facets] = 4
-    facets_markers.scatter_forward()
     facets_markers.array[exterior_facets] = 5
-    facets_markers.scatter_forward()
     facets_markers.array[direct_interface_facets] = 6
     facets_markers.scatter_forward()
-    sorted_indices = np.argsort(all_facets)
 
-    facets_tags = dfx.mesh.meshtags(
-        mesh, fdim, all_facets[sorted_indices], facets_markers.array[sorted_indices]
-    )
-
-    return facets_tags
+    return facets_markers
 
 
 def compute_tags_measures(
@@ -596,20 +567,34 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(
+    cells_markers = _tag_cells(
         mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
     )
-    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+    facets_markers = _tag_facets(
+        mesh, cells_markers, discrete_levelset, detection_degree
+    )
 
     if box_mode:
         submesh = None
-        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
-        integration_entities_outside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(4), 100
+        integration_cells = np.union1d(
+            np.where(np.isclose(cells_markers.array[:], 2)),
+            np.where(np.isclose(cells_markers.array[:], 1)),
         )
-        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
+        integration_entities_outside = _compute_integration_entities(
+            mesh,
+            integration_cells,
+            np.where(np.isclose(facets_markers.array[:], 4)),
+            100,
+        )
+        integration_cells = np.union1d(
+            np.where(np.isclose(cells_markers.array[:], 2)),
+            np.where(np.isclose(cells_markers.array[:], 3)),
+        )
         integration_entities_inside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(3), 101
+            mesh,
+            integration_cells,
+            np.where(np.isclose(facets_markers.array[:], 3)),
+            101,
         )
         combined_integration_entities = (
             integration_entities_outside + integration_entities_inside
@@ -619,17 +604,51 @@ def compute_tags_measures(
             "ds", domain=mesh, subdomain_data=combined_integration_entities
         )
         submesh_maps = None
+        indices = np.arange(
+            cells_markers.index_map.size_local + cells_markers.index_map.num_ghosts
+        )
+        cells_tags = dfx.mesh.meshtags(
+            mesh, mesh.topology.dim, indices, cells_markers.array[:]
+        )
+        indices = np.arange(
+            facets_markers.index_map.size_local + facets_markers.index_map.num_ghosts
+        )
+        facets_tags = dfx.mesh.meshtags(
+            mesh, mesh.topology.dim, indices, facets_markers.array[:]
+        )
     else:
         # We create the submesh
-        omega_h_cells = np.unique(np.hstack([cells_tags.find(1), cells_tags.find(2)]))
+        omega_h_cells = np.unique(
+            np.hstack(
+                [
+                    np.where(np.isclose(cells_markers.array[:], 1)),
+                    np.where(np.isclose(cells_markers.array[:], 2)),
+                ]
+            )
+        )
         submesh, c_map, v_map, n_map = dfx.mesh.create_submesh(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        cells_tags = _transfer_tags(cells_tags, submesh, c_map)
-        facets_tags = _transfer_tags(facets_tags, submesh, c_map, source_mesh=mesh)
+        cells_markers = _transfer_tags(cells_markers, submesh, c_map)
+        facets_markers = _transfer_tags(
+            facets_markers, submesh, c_map, source_mesh=mesh
+        )
         boundaries_measure = ufl.Measure("ds", domain=submesh)
         submesh_maps = [c_map, v_map, n_map]
+
+        indices = np.arange(
+            cells_markers.index_map.size_local + cells_markers.index_map.num_ghosts
+        )
+        cells_tags = dfx.mesh.meshtags(
+            submesh, submesh.topology.dim, indices, cells_markers.array[:]
+        )
+        indices = np.arange(
+            facets_markers.index_map.size_local + facets_markers.index_map.num_ghosts
+        )
+        facets_tags = dfx.mesh.meshtags(
+            submesh, submesh.topology.dim, indices, facets_markers.array[:]
+        )
 
     return (
         cells_tags,
