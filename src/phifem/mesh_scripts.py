@@ -118,12 +118,14 @@ def _compute_detection_vector(
     detection_denom_form = dfx.fem.form(detection_denom)
     detection_denom_vec = assemble_vector(detection_denom_form)
 
+    imap = dg_0_space.dofmap.index_map
+    detection_vector = dfx.la.vector(imap)
     # detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
     # However, in practice it can happen that for a very small cut triangle, detection_denom_vec is of the order of the machine precision.
     # In this case, we set the value of detection_vector to 0.5, meaning we consider the cell as cut.
     mask = np.where(detection_denom_vec.array > 0.0)
-    detection_vector = np.full_like(detection_num_vec.array, 0.5)
-    detection_vector[mask] = (
+    detection_vector.array[:] = 0.5
+    detection_vector.array[mask] = (
         detection_num_vec.array[mask] / detection_denom_vec.array[mask]
     )
     if np.any(np.isclose(detection_denom_vec.array, 0.0)):
@@ -131,7 +133,8 @@ def _compute_detection_vector(
             "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
             RuntimeWarning,
         )
-    return detection_vector
+    detection_vector.scatter_forward()
+    return detection_vector.array
 
 
 def _compute_integration_entities(
