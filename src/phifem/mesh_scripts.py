@@ -534,28 +534,34 @@ def _tag_facets(
             direct_interface_facets,
         ]
     ).astype(np.int32)
-    interior_marker = np.full_like(interior_facets, 1).astype(np.int32)
-    cut_marker = np.full_like(cut_facets, 2).astype(np.int32)
-    interior_boundary_marker = np.full_like(interior_boundary_facets, 3).astype(
-        np.int32
+
+    # Allocate distributed vectors supporting facets markers.
+    all_facets = dfx.mesh.locate_entities(
+        mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
     )
-    boundary_marker = np.full_like(boundary_facets, 4).astype(np.int32)
-    exterior_marker = np.full_like(exterior_facets, 5).astype(np.int32)
-    direct_interface_marker = np.full_like(direct_interface_facets, 6).astype(np.int32)
-    markers = np.hstack(
-        [
-            exterior_marker,
-            interior_marker,
-            interior_boundary_marker,
-            cut_marker,
-            boundary_marker,
-            direct_interface_marker,
-        ]
-    ).astype(np.int32)
-    sorted_indices = np.argsort(indices)
+    wireframe = dfx.mesh.create_submesh(mesh, 1, all_facets)[0]
+    cell_name_wf = wireframe.topology.cell_name()
+    dg0_element_wf = element("DG", cell_name_wf, 0)
+    dg0_space_wf = dfx.fem.functionspace(wireframe, dg0_element_wf)
+    imap = dg0_space_wf.dofmap.index_map
+    facets_markers = dfx.la.vector(imap)
+
+    facets_markers.array[interior_facets] = 1
+    facets_markers.scatter_forward()
+    facets_markers.array[cut_facets] = 2
+    facets_markers.scatter_forward()
+    facets_markers.array[interior_boundary_facets] = 3
+    facets_markers.scatter_forward()
+    facets_markers.array[boundary_facets] = 4
+    facets_markers.scatter_forward()
+    facets_markers.array[exterior_facets] = 5
+    facets_markers.scatter_forward()
+    facets_markers.array[direct_interface_facets] = 6
+    facets_markers.scatter_forward()
+    sorted_indices = np.argsort(all_facets)
 
     facets_tags = dfx.mesh.meshtags(
-        mesh, fdim, indices[sorted_indices], markers[sorted_indices]
+        mesh, fdim, all_facets[sorted_indices], facets_markers.array[sorted_indices]
     )
 
     return facets_tags
