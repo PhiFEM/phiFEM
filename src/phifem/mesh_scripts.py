@@ -244,20 +244,6 @@ def _transfer_markers(
     return dest_markers
 
 
-    dest_entities_indices = np.hstack(dest_entities).astype(np.int32)
-    dest_entities_markers = np.hstack(dest_tags).astype(np.int32)
-    sorted_indices = np.argsort(dest_entities_indices)
-
-    dest_entities_tags = dfx.mesh.meshtags(
-        dest_mesh,
-        edim,
-        dest_entities_indices[sorted_indices],
-        dest_entities_markers[sorted_indices],
-    )
-
-    return dest_entities_tags
-
-
 def _tag_cells(
     mesh: Mesh,
     discrete_levelset: Function,
