@@ -123,16 +123,16 @@ def _compute_detection_vector(
     # detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
     # However, in practice it can happen that for a very small cut triangle, detection_denom_vec is of the order of the machine precision.
     # In this case, we set the value of detection_vector to 0.5, meaning we consider the cell as cut.
+    if np.any(np.isclose(detection_denom_vec.array, 0.0)):
+        warnings.warn(
+            "The levelset function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
+            RuntimeWarning,
+        )
     mask = np.where(detection_denom_vec.array > 0.0)
     detection_vector.array[:] = 0.5
     detection_vector.array[mask] = (
         detection_num_vec.array[mask] / detection_denom_vec.array[mask]
     )
-    if np.any(np.isclose(detection_denom_vec.array, 0.0)):
-        warnings.warn(
-            "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
-            RuntimeWarning,
-        )
     detection_vector.scatter_forward()
     return detection_vector
 
@@ -217,58 +217,32 @@ def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
     return emap, max_offset
 
 
-def _transfer_tags(
-    source_mesh_tags: MeshTags,
-    dest_mesh: Mesh,
+def _transfer_markers(
+    source_markers: dfx.la.Vector,
     cmap: npt.NDArray[Any],
-    source_mesh: Mesh = None,
-) -> MeshTags:
+    edim: int,
+) -> dfx.la.Vector:
     """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
 
     Args:
-        source_mesh_tags: the tags on the source mesh.
+        source_markers: the markers on the source mesh.
         dest_mesh: the destination mesh.
         cmap: the source mesh-destination mesh cells mapping.
-        source_mesh: the source mesh mandatory to transfer facets tags.
 
     Returns:
         Cells tags on the destination mesh.
     """
-    cdim = dest_mesh.topology.dim
-    fdim = cdim - 1
-    edim = source_mesh_tags.dim
+    sub_index_map = cmap.sub_topology.index_map(edim)
+    local_entities = np.arange(sub_index_map.size_local + sub_index_map.num_ghosts)
+    emap = cmap.sub_topology_to_topology(
+        local_entities,
+        False,
+    )
+    dest_markers = dfx.la.vector(sub_index_map)
+    dest_markers.array[:] = source_markers.array[emap]
 
-    if edim == cdim:
-        emap = cmap
-    elif edim == fdim:
-        if source_mesh is None:
-            raise ValueError("You must pass a source_mesh to transfer facets tags.")
+    return dest_markers
 
-        source_mesh.topology.create_connectivity(cdim, fdim)
-        c2f_connect = source_mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        source_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        dest_mesh.topology.create_connectivity(cdim, fdim)
-        c2f_connect = dest_mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        dest_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        source_c2f_dest_map = source_c2f_map[cmap]
-        source_c2f_dest_map = source_c2f_dest_map.reshape(
-            -1,
-        )
-        dest_c2f_map = dest_c2f_map.reshape(
-            -1,
-        )
-        unique_indices, sorted_indices = np.unique(dest_c2f_map, return_index=True)
-        emap = source_c2f_dest_map[sorted_indices]
-    else:
-        raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
-
-    # TODO: change this line to allow parallel computing
-    source_tags = source_mesh_tags.values
-
-    dest_entities = np.arange(len(emap))
-    dest_tags = source_tags[emap]
 
     dest_entities_indices = np.hstack(dest_entities).astype(np.int32)
     dest_entities_markers = np.hstack(dest_tags).astype(np.int32)
@@ -408,6 +382,7 @@ def _tag_facets(
 
     Returns:
         The facets markers as a dfx.la.Vector object.
+        The wireframe mesh containing all facets.
     """
     cdim = mesh.topology.dim
     fdim = cdim - 1
@@ -614,7 +589,7 @@ def compute_tags_measures(
             facets_markers.index_map.size_local + facets_markers.index_map.num_ghosts
         )
         facets_tags = dfx.mesh.meshtags(
-            mesh, mesh.topology.dim, indices, facets_markers.array[:]
+            mesh, mesh.topology.dim - 1, indices, facets_markers.array[:]
         )
     else:
         # We create the submesh
@@ -628,26 +603,36 @@ def compute_tags_measures(
         )
         submesh, c_map, v_map, n_map = dfx.mesh.create_submesh(
             mesh, mesh.topology.dim, omega_h_cells
-        )  # type: ignore
-
-        cells_markers = _transfer_tags(cells_markers, submesh, c_map)
-        facets_markers = _transfer_tags(
-            facets_markers, submesh, c_map, source_mesh=mesh
         )
-        boundaries_measure = ufl.Measure("ds", domain=submesh)
         submesh_maps = [c_map, v_map, n_map]
 
+        cells_markers_submesh = _transfer_markers(
+            cells_markers, c_map, submesh.topology.dim
+        )
+        submesh.topology.create_entities(submesh.topology.dim - 1)
+        submesh_imap = submesh.topology.index_map(submesh.topology.dim - 1)
+        submesh_facets = np.arange(submesh_imap.size_local + submesh_imap.num_ghosts)
+        wf_submesh, wf_map = dfx.mesh.create_submesh(
+            submesh, submesh.topology.dim - 1, submesh_facets
+        )[:2]
+        wf_submesh.topology.create_entities(wf_submesh.topology.dim)
+        facets_markers_subwf = _transfer_markers(
+            facets_markers, wf_map, submesh.topology.dim - 1
+        )
+        boundaries_measure = ufl.Measure("ds", domain=submesh)
+
         indices = np.arange(
-            cells_markers.index_map.size_local + cells_markers.index_map.num_ghosts
+            cells_markers_submesh.index_map.size_local
+            + cells_markers_submesh.index_map.num_ghosts
         )
         cells_tags = dfx.mesh.meshtags(
-            submesh, submesh.topology.dim, indices, cells_markers.array[:]
-        )
-        indices = np.arange(
-            facets_markers.index_map.size_local + facets_markers.index_map.num_ghosts
+            submesh, submesh.topology.dim, indices, cells_markers_submesh.array[:]
         )
         facets_tags = dfx.mesh.meshtags(
-            submesh, submesh.topology.dim, indices, facets_markers.array[:]
+            submesh,
+            submesh.topology.dim - 1,
+            submesh_facets,
+            facets_markers_subwf.array[submesh_facets],
         )
 
     return (
