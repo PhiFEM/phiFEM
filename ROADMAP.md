@@ -6,11 +6,10 @@
 
 ## 🐇 Middle term
 
-- `██▒▒ 50%` Parallel support.
-- `▒▒▒▒  0%` Improve mesh tagging.
-- `▒▒▒▒  0%` Documentation.
+- `███▒ 75%` Parallel support.
+- `█▒▒▒ 25%` Documentation.
+- `▒▒▒▒  0%` 3D.
 
 ## 🐢 Long term
 
 - `▒▒▒▒  0%` Refactoring, improve the interface with the use of classes.
-- `▒▒▒▒  0%` 3D.

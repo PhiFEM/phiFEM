@@ -96,6 +96,16 @@ To run the demos first clone the repository.
   pytest
   ```
 
+## Disclaimer
+
+The author Raphaël Bulle guarantees that his contributions to this project are generative-ai-free.
+
+<p align="center" width="50%">
+    <img width="100%" src="https://github.com/PhiFEM/phiFEM/raw/main/sw.png">
+</p>
+
+For more information, see [here (in french)](https://doi.org/10.58079/1591s).
+
 ## License
 
 `phiFEM` is free software: you can redistribute it and/or modify it under the terms of the GNU Lesser General Public License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later version.
