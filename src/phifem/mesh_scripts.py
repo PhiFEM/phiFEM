@@ -558,12 +558,23 @@ def _tag_facets(
     return facets_tags
 
 
+def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
+    stack_indices = np.hstack([new_tags.indices, tags_to_overwrite.indices])
+    stack_values = np.hstack([new_tags.values, tags_to_overwrite.values])
+    overwritten_indices, ind = np.unique(stack_indices, return_index=True)
+    overwritten_values = stack_values[ind]
+
+    overwritten_tags = dfx.mesh.meshtags(mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values)
+    return overwritten_tags
+
+
 def compute_tags_measures(
     mesh: Mesh,
     discrete_levelset: Function,
     detection_degree: int,
     box_mode: bool = False,
     single_layer_cut: bool = False,
+    overwrite_tags: dict[str,MeshTags] | dict = {},
 ) -> Tuple[
     MeshTags,
     MeshTags,
@@ -591,6 +602,17 @@ def compute_tags_measures(
         mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
     )
     facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+
+    if "cells" in overwrite_tags.keys():
+        ow_cells_tags = overwrite_tags["cells"]
+        if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
+            raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
+        cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
+    if "facets" in overwrite_tags.keys():
+        ow_facets_tags = overwrite_tags["facets"]
+        if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
+            raise ValueError("Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101.")
+        facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
 
     if box_mode:
         submesh = None
