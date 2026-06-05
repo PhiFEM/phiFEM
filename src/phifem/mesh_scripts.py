@@ -135,15 +135,14 @@ def _compute_detection_vector(
 
 
 def _compute_integration_entities(
-    mesh: Mesh, integration_cells: list[int], integration_facets: list[int], ind: int
-) -> ufl.Measure:
+    mesh: Mesh, integration_cells: list[int], integration_facets: list[int]
+) -> list[int]:
     """Compute the integration entities in order to build a one-sided integral over a set of given edges. This script is inspired from https://github.com/jorgensd/dolfinx-tutorial/issues/158.
 
     Args:
         mesh: the mesh on which we compute the measure.
         integration_cells: list of cells indices from which the integral is computed.
         integration_facets: list of facets indices on which the integral is computed.
-        ind: index used in the measure.
     Returns: the integration entities.
     """
     cdim = mesh.topology.dim
@@ -189,7 +188,7 @@ def _compute_integration_entities(
         np.column_stack((right_side_cells_rep, local_indices))
     ).astype(np.int32)
 
-    return [(ind, integration_entities)]
+    return integration_entities
 
 
 def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
@@ -610,7 +609,7 @@ def compute_tags_measures(
         cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
     if "facets" in overwrite_tags.keys():
         ow_facets_tags = overwrite_tags["facets"]
-        if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
+        if np.any(np.isin([1, 2, 3, 4, 5, 6], ow_facets_tags.values)):
             raise ValueError("Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101.")
         facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
 
@@ -618,12 +617,12 @@ def compute_tags_measures(
         submesh = None
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
         integration_entities_outside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(4), 100
-        )
+            mesh, integration_cells, facets_tags.find(4))
+        integration_entities_outside = [(100, integration_entities_outside)]
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
         integration_entities_inside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(3), 101
-        )
+            mesh, integration_cells, facets_tags.find(3))
+        integration_entities_inside = [(101, integration_entities_inside)]
         combined_integration_entities = (
             integration_entities_outside + integration_entities_inside
         )
