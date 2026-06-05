@@ -623,9 +623,29 @@ def compute_tags_measures(
         integration_entities_inside = _compute_integration_entities(
             mesh, integration_cells, facets_tags.find(3))
         integration_entities_inside = [(101, integration_entities_inside)]
-        combined_integration_entities = (
-            integration_entities_outside + integration_entities_inside
-        )
+        combined_integration_entities = integration_entities_outside + integration_entities_inside
+
+        non_phifem_mask = ~np.isin(facets_tags.values, [1, 2, 3, 4, 5, 6])
+        fdim = facets_tags.dim
+        boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool))
+        non_phifem_facets_bdy = np.isin(facets_tags.indices, boundary_facets)
+        non_phifem_mask *= non_phifem_facets_bdy
+        non_phifem_facets_ind = np.arange(len(facets_tags.indices))[non_phifem_mask]
+        non_phifem_facets = facets_tags.indices[non_phifem_facets_ind]
+        non_phifem_facets_tags = np.unique(facets_tags.values[non_phifem_facets_ind])
+        
+        for tag in non_phifem_facets_tags:
+            cdim = mesh.topology.dim
+            fdim = cdim - 1
+            mesh.topology.create_connectivity(fdim, cdim)
+            f2c_connect = mesh.topology.connectivity(fdim, cdim)
+            f2c_map = _reshape_map(f2c_connect)[0]
+
+            non_phifem_facets_cells = f2c_map[non_phifem_facets]
+
+            assert len(non_phifem_facets_cells) == len(non_phifem_facets)
+
+            combined_integration_entities += [(tag, _compute_integration_entities(mesh, non_phifem_facets_cells, facets_tags.find(tag)))]
 
         boundaries_measure = ufl.Measure(
             "ds", domain=mesh, subdomain_data=combined_integration_entities
