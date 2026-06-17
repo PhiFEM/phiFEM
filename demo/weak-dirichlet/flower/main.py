@@ -53,7 +53,7 @@ detection_levelset_h = dfx.fem.Function(bg_levelset_space)
 detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
-    cells_tags, facets_tags, _, ds, _ = compute_tags_measures(
+    cells_tags, facets_tags, _, ds_bdy, _ = compute_tags_measures(
         bg_mesh,
         detection_levelset_h,
         1,
@@ -61,6 +61,8 @@ if mesh_type == "bg":
         single_layer_cut=True,
     )
     mesh = bg_mesh
+    # To get the ds measure on the boundary of Omega_h
+    ds = ds_bdy(100)
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _ = compute_tags_measures(
         bg_mesh,
