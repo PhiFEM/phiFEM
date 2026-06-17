@@ -56,10 +56,12 @@ detection_levelset_h = dfx.fem.Function(bg_levelset_space)
 detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
-    cells_tags, facets_tags, _, ds, _ = compute_tags_measures(
+    cells_tags, facets_tags, _, ds_bdy, _ = compute_tags_measures(
         bg_mesh, detection_levelset_h, 1, box_mode=True
     )
     mesh = bg_mesh
+    # To get the ds measure on the bounday of Omega_h
+    ds = ds_bdy(100)
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _ = compute_tags_measures(
         bg_mesh, detection_levelset_h, 1, box_mode=False
@@ -140,11 +142,10 @@ pc = ksp.getPC()
 pc.setType("lu")
 
 # When solving on the background mesh, we need mumps to handle the null space of the matrix
-if mesh_type == "bg":
-    pc.setFactorSolverType("mumps")
-    pc.setFactorSetUpSolverType()
-    pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
-    pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
+pc.setFactorSolverType("mumps")
+pc.setFactorSetUpSolverType()
+pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
+pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
 """
 ===============================
