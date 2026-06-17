@@ -62,7 +62,7 @@ if mesh_type == "bg":
     )
     mesh = bg_mesh
 elif mesh_type == "sub":
-    cells_tags, facets_tags, mesh, _, _, _ = compute_tags_measures(
+    cells_tags, facets_tags, mesh, _, _ = compute_tags_measures(
         bg_mesh,
         detection_levelset_h,
         1,
