@@ -21,9 +21,6 @@ See [phifem-env.yml](phifem-env.yml).
 > ⚠️ Note that all these dependencies (except `phifem`) are already included in `dolfinx` Docker container.
 
 ## Installation
-  ```bash
-  git clone https://github.com/PhiFEM/phiFEM.git
-  ```
 
 ### Pixi environment
 
