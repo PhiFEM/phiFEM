@@ -9,6 +9,7 @@ from data import detection_levelset, levelset, source_term
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
+import numpy as np
 
 from phifem.mesh_scripts import compute_tags_measures
 
@@ -133,27 +134,36 @@ b = assemble_vector(linear_form)
  Set up the PETSc LU solver
 =========================
 """
-ksp = PETSc.KSP().create(mesh.comm)
-ksp.setOperators(A)
-ksp.setType("preonly")
-pc = ksp.getPC()
-pc.setType("lu")
-
-# When solving on the background mesh, we need mumps to handle the null space of the matrix
 if mesh_type == "bg":
-    pc.setFactorSolverType("mumps")
-    pc.setFactorSetUpSolverType()
-    pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
-    pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
+    tdim = mesh.topology.dim
+    mesh.topology.create_connectivity(tdim, tdim)
+    active_cells = np.concatenate([cells_tags.find(1), cells_tags.find(2)])
+    active_dofs = np.sort(
+        dfx.fem.locate_dofs_topological(primal_space, tdim, active_cells)
+    ).astype(np.int32)
+    active_is = PETSc.IS().createGeneral(active_dofs, comm=mesh.comm)
 
-"""
-===============================
- Solve the φ-FEM linear system
-===============================
-"""
-solution_wh = dfx.fem.Function(primal_space)
-ksp.solve(b, solution_wh.x.petsc_vec)
-ksp.destroy()
+    A_active = A.createSubMatrix(active_is, active_is)
+    b_active = b.getSubVector(active_is)
+
+    ksp = PETSc.KSP().create(mesh.comm)
+    ksp.setOperators(A_active)
+    ksp.setType("preonly")
+    pc = ksp.getPC()
+    pc.setType("lu")
+
+    wh_active = b_active.duplicate()
+    """
+    ===============================
+     Solve the φ-FEM linear system
+    ===============================
+    """
+    ksp.solve(b_active, wh_active)
+    solution_wh = dfx.fem.Function(primal_space)
+    solution_wh.x.array[active_dofs] = wh_active.array
+    solution_wh.x.scatter_forward()
+    ksp.destroy()
+
 
 solution_uh = dfx.fem.Function(solution_space)
 solution_wh_s_space = dfx.fem.Function(solution_space)
