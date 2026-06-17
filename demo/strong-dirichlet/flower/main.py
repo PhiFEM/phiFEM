@@ -134,6 +134,7 @@ b = assemble_vector(linear_form)
  Set up the PETSc LU solver
 =========================
 """
+solution_wh = dfx.fem.Function(primal_space)
 if mesh_type == "bg":
     tdim = mesh.topology.dim
     mesh.topology.create_connectivity(tdim, tdim)
@@ -159,11 +160,18 @@ if mesh_type == "bg":
     ===============================
     """
     ksp.solve(b_active, wh_active)
-    solution_wh = dfx.fem.Function(primal_space)
     solution_wh.x.array[active_dofs] = wh_active.array
     solution_wh.x.scatter_forward()
     ksp.destroy()
+else:
+    ksp = PETSc.KSP().create(mesh.comm)
+    ksp.setOperators(A)
+    ksp.setType("preonly")
+    pc = ksp.getPC()
+    pc.setType("lu")
 
+    ksp.solve(b, solution_wh.x.petsc_vec)
+    ksp.destroy()
 
 solution_uh = dfx.fem.Function(solution_space)
 solution_wh_s_space = dfx.fem.Function(solution_space)
