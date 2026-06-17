@@ -1,0 +1,26 @@
+[workspace]
+authors = ["Raphaël Bulle <rbulle@tutanota.com>"]
+channels = ["conda-forge"]
+name = "phiFEM"
+platforms = ["linux-64"]
+version = "0.7.1.dev2"
+
+[environments]
+dev = ["dev"]
+
+[dependencies]
+python = ">=3.11.10"
+numpy = ">=1.26.3"
+fenics-dolfinx = ">=0.10.0,<0.11.0"
+mpich = ">=4.3.2,<5"
+matplotlib = ">=3.10.9,<4"
+
+[pypi-dependencies]
+phifem = "==0.7.1.dev2"
+meshtagsplot = ">=0.0.7, <0.0.8"
+
+[feature.dev.dependencies]
+pytest = "*"
+matplotlib = "*"
+pyvista = ">=0.47.3,<0.48"
+scifem = ">=0.17.0, <0.18"
