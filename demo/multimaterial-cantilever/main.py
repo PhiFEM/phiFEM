@@ -61,7 +61,6 @@ Then, we use the interpolated levelset to compute the phiFEM tags and the phiFEM
 Here, we choose the detection_degree to be the same as the levelset degree.
 We set box_mode to True since the levelset is here used to define an interface between two materials, we therefore want to keep the part of the mesh where the levelset is positive.
 """
-cell_name = mesh.topology.cell_name()
 levelset_degree = 1
 levelset_element = element("Lagrange", cell_name, levelset_degree)
 levelset_space = dfx.fem.functionspace(mesh, levelset_element)
@@ -91,10 +90,11 @@ clamped_tags = np.full_like(clamped_bdy_facets, 10)
 traction_tags = np.full_like(traction_bdy_facets, 20)
 constrained_facets = np.hstack([clamped_bdy_facets, traction_bdy_facets])
 constrained_tags = np.hstack([clamped_tags, traction_tags])
-sorted_facets = np.argsort(constrained_facets)
-sorted_tags = constrained_tags[sorted_facets]
+sorted = np.argsort(constrained_facets)
+sorted_facets = constrained_facets[sorted]
+sorted_tags = constrained_tags[sorted]
 
-bdy_facet_tags = dfx.mesh.meshtags(mesh, fdim, constrained_facets, constrained_tags)
+bdy_facet_tags = dfx.mesh.meshtags(mesh, fdim, sorted_facets, sorted_tags)
 tags_to_overwrite = {"facets": bdy_facet_tags}
 
 """
@@ -129,7 +129,7 @@ dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 """
 We define the clamped Dirichlet boundary condition, note that the Dirichlet boundary condition only need to be applied to the left displacement, connected to the clamped boundary, this is why we use mixed_space.sub(0).
 """
-left_space = mixed_space.sub(0).collapse()[0]
+left_space, map_left = mixed_space.sub(0).collapse()
 clamped_bdy_dofs = dfx.fem.locate_dofs_topological(
     (mixed_space.sub(0), left_space), fdim, clamped_bdy_facets
 )
@@ -167,12 +167,12 @@ penalization = penalization_coefficient * (
     )
 )
 
-stabilization_cells_right = (
-    stabilization_coefficient * h**2 * ufl.inner(ufl.div(y_left), ufl.div(z_left))
+stabilization_cells_right = stabilization_coefficient * ufl.inner(
+    ufl.div(y_left), ufl.div(z_left)
 )
 
-stabilization_cells_left = (
-    stabilization_coefficient * h**2 * ufl.inner(ufl.div(y_right), ufl.div(z_right))
+stabilization_cells_left = stabilization_coefficient * ufl.inner(
+    ufl.div(y_right), ufl.div(z_right)
 )
 
 stabilization_facets_right = (
@@ -209,9 +209,15 @@ solver = ksp.create(MPI.COMM_WORLD)
 solver.setFromOptions()
 solver.setOperators(A)
 
-# Configure MUMPS to handle nullspace
 pc = solver.getPC()
 pc.setType("lu")
+"""
+We use MUMPS to handle the nullspace during the LU solve. Note that we could have used an iterative solver instead.
+"""
+pc.setFactorSolverType("mumps")
+pc.setFactorSetUpSolverType()
+pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
+pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
 L = ufl.inner(traction, v_right) * ds_phifem(20)
 
@@ -241,7 +247,36 @@ displacement_right = solution_right.collapse()
 displacement_left.name = "displacement_left"
 displacement_right.name = "displacement_right"
 
+mesh.topology.create_connectivity(2, 2)
+right_space, map_right = mixed_space.sub(1).collapse()
+map_left = np.asarray(map_left)
+map_right = np.asarray(map_right)
+displacement = dfx.fem.Function(left_space)
+
+cut_dofs_left = dfx.fem.locate_dofs_topological(
+    (mixed_space.sub(0), left_space), cells_tags.dim, cells_tags.find(2)
+)[1]
+cut_dofs_right = dfx.fem.locate_dofs_topological(
+    (mixed_space.sub(1), right_space), cells_tags.dim, cells_tags.find(2)
+)[1]
+left_dofs = dfx.fem.locate_dofs_topological(
+    (mixed_space.sub(0), left_space), cells_tags.dim, cells_tags.find(1)
+)[1]
+left_dofs = np.setdiff1d(left_dofs, cut_dofs_left)
+right_dofs = dfx.fem.locate_dofs_topological(
+    (mixed_space.sub(1), right_space), cells_tags.dim, cells_tags.find(3)
+)[1]
+right_dofs = np.setdiff1d(right_dofs, cut_dofs_right)
+displacement.x.array[left_dofs] = solution_wh.x.array[map_left[left_dofs]]
+displacement.x.array[right_dofs] = solution_wh.x.array[map_right[right_dofs]]
+displacement.x.array[cut_dofs_left] = 0.5 * (
+    solution_wh.x.array[map_left[cut_dofs_left]]
+    + solution_wh.x.array[map_right[cut_dofs_right]]
+)
+displacement.name = "displacement"
+
 with XDMFFile(mesh.comm, os.path.join(output_dir, "results.xdmf"), "w") as of:
     of.write_mesh(mesh)
     of.write_function(displacement_left)
     of.write_function(displacement_right)
+    of.write_function(displacement)

@@ -12,7 +12,7 @@ def mu(E, nu):
 
 
 # Left material parameters
-E_left = 0.1
+E_left = 0.01
 nu_left = 0.3
 lmbda_left = lmbda(E_left, nu_left)
 mu_left = mu(E_left, nu_left)
@@ -43,7 +43,7 @@ def exact_levelset(x):
     return 0.5 * np.sin(np.pi * x[1] - 1.5) + x[0] - 1.0
 
 
-traction = ufl.as_vector((0.0, -1.0))
+traction = ufl.as_vector((0.0, -0.001))
 
 penalization_coefficient = 1.0
 stabilization_coefficient = 1.0
