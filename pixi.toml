@@ -13,5 +13,5 @@ mpich = ">=4.3.2,<5"
 matplotlib = ">=3.10.9,<4"
 
 [pypi-dependencies]
-phifem = "==0.7.0"
+phifem = "==0.7.1.dev2"
 meshtagsplot = ">=0.0.7, <0.0.8"

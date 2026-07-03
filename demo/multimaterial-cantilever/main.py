@@ -1,4 +1,3 @@
-import argparse
 import os
 
 import dolfinx as dfx
@@ -10,12 +9,13 @@ from data import (
     E_left,
     E_right,
     epsilon,
-    levelset,
+    exact_levelset,
+    penalization_coefficient,
     sigma_left,
     sigma_right,
-    traction
+    stabilization_coefficient,
+    traction,
 )
-from dolfinx.fem import assemble_scalar
 from dolfinx.fem.petsc import assemble_matrix, assemble_vector
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
@@ -32,9 +32,7 @@ if not os.path.isdir(output_dir):
     print(f"{output_dir} directory not found, we create it.")
     os.mkdir(os.path.join(parent_dir, output_dir))
 
-mesh = dfx.mesh.create_rectangle(
-    MPI.COMM_WORLD, [[0., 0.], [2., 1.]], [20, 10]
-)
+mesh = dfx.mesh.create_rectangle(MPI.COMM_WORLD, [[0.0, 0.0], [2.0, 1.0]], [50, 25])
 
 """
 The phiFEM interface scheme uses extra variables in addition to the "primal" variables (the displacement on the left part and the displacement on the right part).
@@ -67,20 +65,23 @@ cell_name = mesh.topology.cell_name()
 levelset_degree = 1
 levelset_element = element("Lagrange", cell_name, levelset_degree)
 levelset_space = dfx.fem.functionspace(mesh, levelset_element)
-levelset_h = dfx.fem.Function(levelset_space)
-levelset_h.interpolate(levelset)
+levelset = dfx.fem.Function(levelset_space)
+levelset.interpolate(exact_levelset)
 
 """
 We tag the facets supporting the different boundary conditions applied to the beam.
 """
 
+
 def clamped_bdy(x):
-    return x[0] < 0.1
+    return x[0] < 0.001
+
 
 def traction_bdy(x):
-    right = x[0] > 0.9
+    right = x[0] > 1.99
     middle = np.logical_and(x[1] > 0.4, x[1] < 0.6)
     return np.logical_and(right, middle)
+
 
 fdim = gdim - 1
 clamped_bdy_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, clamped_bdy)
@@ -88,12 +89,13 @@ traction_bdy_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, traction_bdy
 
 clamped_tags = np.full_like(clamped_bdy_facets, 10)
 traction_tags = np.full_like(traction_bdy_facets, 20)
-constrained_facets = np.vstack([clamped_bdy_facets, traction_bdy_facets])
-constrained_tags = np.vstack([clamped_tags, traction_tags])
+constrained_facets = np.hstack([clamped_bdy_facets, traction_bdy_facets])
+constrained_tags = np.hstack([clamped_tags, traction_tags])
 sorted_facets = np.argsort(constrained_facets)
 sorted_tags = constrained_tags[sorted_facets]
 
-bdy_meshtags = dfx.mesh.meshtags(mesh, fdim, sorted_facets, sorted_tags)
+bdy_facet_tags = dfx.mesh.meshtags(mesh, fdim, constrained_facets, constrained_tags)
+tags_to_overwrite = {"facets": bdy_facet_tags}
 
 """
 We call the phiFEM function to return the cells and facets tags as well as the phiFEM boundary measure.
@@ -102,81 +104,99 @@ We use the cells and facets tags to define our dx and dS measures.
 Note that the ds_phifem measure, unlike standard dolfinx code, is not restricted to the boundary of the mesh but applies also to the boundaries of the union of the cut cells.
 """
 cells_tags, facets_tags, _, ds_phifem, _ = compute_tags_measures(
-    mesh, levelset_h, levelset_degree, box_mode=True, overwrite_tags=bdy_meshtags
+    mesh, levelset, levelset_degree, box_mode=True, overwrite_tags=tags_to_overwrite
 )
+with XDMFFile(mesh.comm, os.path.join(output_dir, "cells_tags.xdmf"), "w") as of:
+    of.write_mesh(mesh)
+    of.write_meshtags(cells_tags, mesh.geometry)
+
+all_facets = dfx.mesh.locate_entities(mesh, 1, lambda x: np.ones_like(x[0], dtype=bool))
+wireframe = dfx.mesh.create_submesh(mesh, 1, all_facets)[0]
+wf_cell_name = wireframe.topology.cell_name()
+dg0_element = element("DG", wf_cell_name, 0)
+wf_dg0_space = dfx.fem.functionspace(wireframe, dg0_element)
+
+facets_tags_h = dfx.fem.Function(wf_dg0_space)
+facets_tags_h.x.array[:] = facets_tags.values
+
+with XDMFFile(wireframe.comm, os.path.join(output_dir, "facets_tags.xdmf"), "w") as of:
+    of.write_mesh(wireframe)
+    of.write_function(facets_tags_h)
+
 dx = ufl.Measure("dx", domain=mesh, subdomain_data=cells_tags)
 dS = ufl.Measure("dS", domain=mesh, subdomain_data=facets_tags)
 
 """
 We define the clamped Dirichlet boundary condition, note that the Dirichlet boundary condition only need to be applied to the left displacement, connected to the clamped boundary, this is why we use mixed_space.sub(0).
 """
+left_space = mixed_space.sub(0).collapse()[0]
 clamped_bdy_dofs = dfx.fem.locate_dofs_topological(
-    mixed_space.sub(0), fdim, clamped_bdy_facets
+    (mixed_space.sub(0), left_space), fdim, clamped_bdy_facets
 )
-dirichlet_bc = dfx.fem.dirichletbc(dfx.default_scalar_type(0), clamped_bdy_dofs, mixed_space.sub(0))
+dbc = dfx.fem.Function(left_space)
+dirichlet_bc = dfx.fem.dirichletbc(dbc, clamped_bdy_dofs, mixed_space.sub(0))
 bcs = [dirichlet_bc]
 
 u_left, u_right, y_left, y_right, p = ufl.TrialFunctions(mixed_space)
 v_left, v_right, z_left, z_right, q = ufl.TestFunctions(mixed_space)
 
-
-
 n = ufl.FacetNormal(mesh)
-h_T = ufl.CellDiameter(mesh)
+h = ufl.CellDiameter(mesh)
 
-boundary_in = ufl.inner(ufl.dot(y_left, n), v_left)
-boundary_out = ufl.inner(ufl.dot(y_right, n), v_right)
+boundary_left = ufl.inner(ufl.dot(y_left, n), v_left)
+boundary_right = ufl.inner(ufl.dot(y_right, n), v_right)
 
-stiffness_in = ufl.inner(sigma_left(u_left), epsilon(v_left))
-stiffness_out = ufl.inner(sigma_right(u_right), epsilon(v_right))
+stiffness_left = ufl.inner(sigma_left(u_left), epsilon(v_left))
+stiffness_right = ufl.inner(sigma_right(u_right), epsilon(v_right))
 
-coef_in = (E_left / (E_left + E_right)) ** 2
-coef_out = (E_right / (E_left + E_right)) ** 2
+coef_left = (E_left / (E_left + E_right)) ** 2
+coef_right = (E_right / (E_left + E_right)) ** 2
 penalization = penalization_coefficient * (
-    ufl.inner(y_left + sigma_left(u_left), z_left + sigma_left(v_left)) * coef_out
-    + ufl.inner(y_right + sigma_right(u_right), z_right + sigma_right(v_right)) * coef_in
-    + h_T ** (-2)
+    ufl.inner(y_left + sigma_left(u_left), z_left + sigma_left(v_left)) * coef_right
+    + ufl.inner(y_right + sigma_right(u_right), z_right + sigma_right(v_right))
+    * coef_left
+    + h ** (-2)
     * ufl.inner(
-        ufl.dot(y_left, ufl.grad(phi_h)) - ufl.dot(y_right, ufl.grad(phi_h)),
-        ufl.dot(z_left, ufl.grad(phi_h)) - ufl.dot(z_right, ufl.grad(phi_h)),
+        ufl.dot(y_left, ufl.grad(levelset)) - ufl.dot(y_right, ufl.grad(levelset)),
+        ufl.dot(z_left, ufl.grad(levelset)) - ufl.dot(z_right, ufl.grad(levelset)),
     )
-    + h_T ** (-2)
+    + h ** (-2)
     * ufl.inner(
-        u_left - u_right + h_T ** (-1) * p * phi_h,
-        v_left - v_right + h_T ** (-1) * q * phi_h,
+        u_left - u_right + h ** (-1) * p * levelset,
+        v_left - v_right + h ** (-1) * q * levelset,
     )
 )
 
-stabilization_facets_in = (
+stabilization_cells_right = (
+    stabilization_coefficient * h**2 * ufl.inner(ufl.div(y_left), ufl.div(z_left))
+)
+
+stabilization_cells_left = (
+    stabilization_coefficient * h**2 * ufl.inner(ufl.div(y_right), ufl.div(z_right))
+)
+
+stabilization_facets_right = (
     stabilization_coefficient
-    * ufl.avg(h_T)
-    * ufl.inner(ufl.jump(sigma_left(u_left), n), ufl.jump(sigma_left(v_left), n))
-)
-
-stabilization_cells_in = (
-    stabilization_coefficient * h_T**2 * ufl.inner(ufl.div(y_left), ufl.div(z_left))
-)
-
-stabilization_cells_out = (
-    stabilization_coefficient * h_T**2 * ufl.inner(ufl.div(y_right), ufl.div(z_right))
-)
-
-stabilization_facets_out = (
-    stabilization_coefficient
-    * ufl.avg(h_T)
+    * ufl.avg(h)
     * ufl.inner(ufl.jump(sigma_right(u_right), n), ufl.jump(sigma_right(v_right), n))
 )
 
+stabilization_facets_left = (
+    stabilization_coefficient
+    * ufl.avg(h)
+    * ufl.inner(ufl.jump(sigma_left(u_left), n), ufl.jump(sigma_left(v_left), n))
+)
+
 a = (
-    stiffness_in * dx((1, 2))
-    + stiffness_out * dx((2, 3))
+    stiffness_left * dx((1, 2))
+    + stiffness_right * dx((2, 3))
     + penalization * dx(2)
-    + stabilization_facets_in * dS(3)
-    + stabilization_facets_out * dS(4)
-    + stabilization_cells_in * dx(2)
-    + stabilization_cells_out * dx(2)
-    + boundary_in * d_bdry(100)
-    + boundary_out * d_bdry(101)
+    + stabilization_facets_left * dS(3)
+    + stabilization_facets_right * dS(4)
+    + stabilization_cells_right * dx(2)
+    + stabilization_cells_left * dx(2)
+    + boundary_left * ds_phifem(100)
+    + boundary_right * ds_phifem(101)
 )
 
 bilinear_form = dfx.fem.form(a)
@@ -192,26 +212,8 @@ solver.setOperators(A)
 # Configure MUMPS to handle nullspace
 pc = solver.getPC()
 pc.setType("lu")
-pc.setFactorSolverType("mumps")
-pc.setFactorSetUpSolverType()
-pc.getFactorMatrix().setMumpsIcntl(icntl=24, ival=1)
-pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 
-stabilization_rhs_in = (
-    stabilization_coefficient * h_T**2 * (ufl.inner(f, ufl.div(z_left)))
-)
-stabilization_rhs_out = (
-    stabilization_coefficient * h_T**2 * (ufl.inner(f, ufl.div(z_right)))
-)
-rhs_in = ufl.inner(f, v_left)
-rhs_out = ufl.inner(f, v_right)
-
-L = (
-    rhs_in * dx((1, 2))
-    + rhs_out * dx((2, 3))
-    + stabilization_rhs_in * dx(2)
-    + stabilization_rhs_out * dx(2)
-)
+L = ufl.inner(traction, v_right) * ds_phifem(20)
 
 linear_form = dfx.fem.form(L)
 b = assemble_vector(linear_form)
@@ -233,113 +235,13 @@ ksp.solve(b, solution_wh.x.petsc_vec)
 PETSc.Log.view(viewer)
 ksp.destroy()
 
-solution_uh_in, solution_uh_out, _, _, _ = solution_wh.split()
-save_function(solution_uh_in.collapse(), f"solution_in_{str(i).zfill(2)}")
-save_function(solution_uh_out.collapse(), f"solution_out_{str(i).zfill(2)}")
+solution_left, solution_right = solution_wh.split()[:2]
+displacement_left = solution_left.collapse()
+displacement_right = solution_right.collapse()
+displacement_left.name = "displacement_left"
+displacement_right.name = "displacement_right"
 
-# Combine the in and out solutions
-solution_h = dfx.fem.Function(mixed_space)
-solution_uh, _, _, _, _ = solution_h.split()
-solution_uh = solution_uh.collapse()
-
-mesh.topology.create_connectivity(gdim, gdim)
-dofs_to_remove_in = dfx.fem.locate_dofs_topological(
-    mixed_space.sub(0), gdim, cells_tags.find(3)
-)
-dofs_cut_in = dfx.fem.locate_dofs_topological(
-    mixed_space.sub(0), gdim, cells_tags.find(2)
-)
-dofs_to_remove_in = np.setdiff1d(dofs_to_remove_in, dofs_cut_in)
-
-dofs_to_remove_out = dfx.fem.locate_dofs_topological(
-    mixed_space.sub(1), gdim, cells_tags.find(1)
-)
-dofs_cut_out = dfx.fem.locate_dofs_topological(
-    mixed_space.sub(1), gdim, cells_tags.find(2)
-)
-dofs_to_remove_out = np.setdiff1d(dofs_to_remove_out, dofs_cut_out)
-
-solution_uh_out.x.array[dofs_cut_out] = solution_uh_out.x.array[dofs_cut_out] / 2.0
-solution_uh_in.x.array[dofs_cut_in] = solution_uh_in.x.array[dofs_cut_in] / 2.0
-solution_uh_out.x.array[dofs_to_remove_out] = 0.0
-solution_uh_in.x.array[dofs_to_remove_in] = 0.0
-solution_uh_out = solution_uh_out.collapse()
-solution_uh_in = solution_uh_in.collapse()
-solution_uh.x.array[:] = solution_uh_in.x.array[:] + solution_uh_out.x.array[:]
-
-save_function(solution_uh, f"solution_{str(i).zfill(2)}")
-save_function(phi_h, f"levelset_{str(i).zfill(2)}")
-
-# Discretization error computation
-
-reference_element = element("Lagrange", cell_name, primal_degree + 2, shape=(gdim,))
-reference_space = dfx.fem.functionspace(mesh, reference_element)
-
-reference_exact_solution = dfx.fem.Function(reference_space)
-reference_exact_solution.interpolate(exact_solution)
-reference_solution_uh = dfx.fem.Function(reference_space)
-reference_solution_uh.interpolate(solution_uh)
-
-reference_error = reference_exact_solution - reference_solution_uh
-
-# H10 error
-h10_norm_exact_solution = (
-    ufl.inner(
-        ufl.grad(reference_exact_solution), ufl.grad(reference_exact_solution)
-    )
-    * dx
-)
-h10_norm_exact_solution = assemble_scalar(dfx.fem.form(h10_norm_exact_solution))
-
-h10_norm = ufl.inner(ufl.grad(reference_error), ufl.grad(reference_error))
-
-v0 = ufl.TrialFunction(dg0_space)
-h10_local_fct = dfx.fem.Function(dg0_space)
-
-h10_local = ufl.inner(h10_norm, v0) * dx
-h10_local_form = dfx.fem.form(h10_local)
-h10_local_vec = assemble_vector(h10_local_form)
-h10_local_fct.x.array[:] = h10_local_vec.array[:]
-
-save_function(h10_local_fct, f"h10_local_error_{str(i).zfill(2)}")
-
-h10_global_err = np.sqrt(np.sum(h10_local_vec.array[:]) / h10_norm_exact_solution)
-results["H10 relative error"].append(h10_global_err)
-
-# L2 error
-l2_norm_exact_solution = (
-    ufl.inner(reference_exact_solution, reference_exact_solution) * dx
-)
-l2_norm_exact_solution = assemble_scalar(dfx.fem.form(l2_norm_exact_solution))
-
-l2_norm = ufl.inner(reference_error, reference_error)
-
-v0 = ufl.TrialFunction(dg0_space)
-l2_local_fct = dfx.fem.Function(dg0_space)
-
-l2_local = ufl.inner(l2_norm, v0) * dx
-l2_local_form = dfx.fem.form(l2_local)
-l2_local_vec = assemble_vector(l2_local_form)
-l2_local_fct.x.array[:] = l2_local_vec.array[:]
-
-save_function(l2_local_fct, f"l2_local_error_{str(i).zfill(2)}")
-
-l2_global_err = np.sqrt(np.sum(l2_local_vec.array[:]) / l2_norm_exact_solution)
-results["L2 relative error"].append(l2_global_err)
-
-df = pl.DataFrame(results)
-df.write_csv(os.path.join(output_dir, "results.csv"))
-print(df)
-
-if i < num_iterations - 1:
-    mesh = dfx.mesh.refine(mesh)[0]
-
-h10_slope, _ = np.polyfit(
-    np.log(results["dof"][:]), np.log(results["H10 relative error"][:]), 1
-)
-l2_slope, _ = np.polyfit(
-    np.log(results["dof"][:]), np.log(results["L2 relative error"][:]), 1
-)
-
-print("H10 relative error slope:", h10_slope)
-print("L2 relative error slope:", l2_slope)
+with XDMFFile(mesh.comm, os.path.join(output_dir, "results.xdmf"), "w") as of:
+    of.write_mesh(mesh)
+    of.write_function(displacement_left)
+    of.write_function(displacement_right)
