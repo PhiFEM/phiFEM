@@ -92,8 +92,14 @@ To run the demos first clone the repository.
 
 - Run the tests:  
   ```bash
-  cd tests
   pytest
+  ```
+
+**Using Pixi:**
+
+- Run:
+  ```bash
+  pixi run test
   ```
 
 ## Disclaimer
