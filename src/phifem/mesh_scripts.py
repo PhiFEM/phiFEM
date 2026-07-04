@@ -7,6 +7,7 @@ from typing import Any, Tuple
 import dolfinx as dfx
 import numpy as np
 import numpy.typing as npt
+import quadratures as quad
 import ufl  # type: ignore
 from basix.ufl import element
 from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
@@ -23,73 +24,6 @@ debug_mode = False
 if "MODE" in os.environ:
     if os.environ["MODE"] == "debug":
         debug_mode = True
-
-
-def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate quadrature points on the reference segment.
-
-    Args:
-        N: int, N + 1 is the number of points on the segment.
-
-    Returns: A numpy array (2, N + 1) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        points = np.linspace(0, 1, N + 1).astype(np.float64)
-    else:
-        points = np.array([0.5]).astype(np.float64)
-    return np.atleast_2d(points).T
-
-
-def _reference_triangle_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate boundary quadrature points on the reference triangle cell.
-
-    Args:
-        N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
-
-    Returns: A numpy array (2, 3N) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        t1 = np.linspace(0, 1, N + 1)
-        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
-        t2 = t1[1:]
-        edge2 = np.stack((1 - t2, t2), axis=-1).astype(np.float64)
-        t3 = t1[1:-1]
-        edge3 = np.stack((np.zeros_like(t3), 1 - t3), axis=-1).astype(np.float64)
-
-        if N > 1:
-            points = np.concatenate((edge1, edge2, edge3), axis=0)
-        else:
-            points = np.concatenate((edge1, edge2), axis=0)
-    else:
-        points = np.array([[1.0 / 3.0, 1.0 / 3.0]]).astype(np.float64)
-    return points
-
-
-def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate boundary quadrature points on the reference square cell.
-
-    Args:
-        N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
-
-    Returns: A numpy array (2, 4N) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        t1 = np.linspace(0, 1, N + 1)
-        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
-        t2 = t1[1:]
-        edge2 = np.stack((np.ones_like(t2), t2), axis=-1).astype(np.float64)
-        t3 = t1[1:]
-        edge3 = np.stack((1.0 - t3, np.ones_like(t3)), axis=-1).astype(np.float64)
-        t4 = t1[1:-1]
-        edge4 = np.stack((np.zeros_like(t4), 1.0 - t4), axis=-1).astype(np.float64)
-
-        if N > 1:
-            points = np.concatenate((edge1, edge2, edge3, edge4), axis=0)
-        else:
-            points = np.concatenate((edge1, edge2, edge3), axis=0)
-    else:
-        points = np.array([[1.0 / 2.0, 1.0 / 2.0]]).astype(np.float64)
-    return points
 
 
 def _compute_detection_vector(
@@ -319,21 +253,27 @@ def _tag_cells(
     # The weights are 1.
     cell_type = mesh.topology.cell_type.name
 
+    fallback_quadrature = False
     if cell_type == "triangle":
-        points = _reference_triangle_boundary_points(detection_degree)
+        points = quad.triangle_points(detection_degree)
     elif cell_type == "quadrilateral":
-        points = _reference_square_boundary_points(detection_degree)
+        points = quad.square_points(detection_degree)
     else:
-        raise NotImplementedError(
-            "Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'"
-        )
+        fallback_quadrature = True
+
     weights = np.ones_like(points[:, 0])
 
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
+    if fallback_quadrature:
+        detection_quadrature = {
+            "quadrature_rule": "default",
+            "quadrature_degree": detection_degree,
+        }
+    else:
+        detection_quadrature = {
+            "quadrature_rule": "custom",
+            "quadrature_points": points,
+            "quadrature_weights": weights,
+        }
 
     detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
 
@@ -431,7 +371,7 @@ def _tag_facets(
         mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
     )
 
-    points = _reference_segment_points(detection_degree)
+    points = quad.segment_points(detection_degree)
     weights = np.ones_like(points[:, 0])
 
     detection_quadrature = {
@@ -564,7 +504,9 @@ def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
     overwritten_indices, ind = np.unique(stack_indices, return_index=True)
     overwritten_values = stack_values[ind]
 
-    overwritten_tags = dfx.mesh.meshtags(mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values)
+    overwritten_tags = dfx.mesh.meshtags(
+        mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values
+    )
     return overwritten_tags
 
 
@@ -574,7 +516,7 @@ def compute_tags_measures(
     detection_degree: int,
     box_mode: bool = False,
     single_layer_cut: bool = False,
-    overwrite_tags: dict[str,MeshTags] | dict = {},
+    overwrite_tags: dict[str, MeshTags] | dict = {},
 ) -> Tuple[
     MeshTags,
     MeshTags,
@@ -611,7 +553,9 @@ def compute_tags_measures(
     if "facets" in overwrite_tags.keys():
         ow_facets_tags = overwrite_tags["facets"]
         if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
-            raise ValueError("Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101.")
+            raise ValueError(
+                "Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101."
+            )
         facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
 
     if box_mode:
