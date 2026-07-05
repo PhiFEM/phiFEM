@@ -10,11 +10,11 @@ import numpy.typing as npt
 import quadratures as quad
 import ufl  # type: ignore
 from basix.ufl import element
-from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
 from dolfinx.fem import Function
 from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
 from ufl import inner
+from utils import reshape_map
 
 PathStr = PathLike[str] | str
 
@@ -85,7 +85,7 @@ def _compute_integration_entities(
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
-    f2c_map = _reshape_map(f2c_connect)[0]
+    f2c_map = reshape_map(f2c_connect)[0]
 
     # Omega_h^Gamma one-sided boundary integral
     connected_cells = f2c_map[integration_facets]
@@ -124,28 +124,6 @@ def _compute_integration_entities(
     ).astype(np.int32)
 
     return [(ind, integration_entities)]
-
-
-def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
-    """Reshape the connected entities mapping. The reshaped mapping cannot be used to deduce the number of neighbors.
-
-    Args:
-        connect: the connectivity.
-
-    Returns:
-        The mapping as a ndarray.
-    """
-    array = connect.array
-    num_e1_per_e2 = np.diff(connect.offsets)
-    max_offset = num_e1_per_e2.max()
-    emap = -np.ones((len(connect.offsets) - 1, max_offset), dtype=int)
-
-    # Mask to select the boundary facets
-    for num in np.unique(num_e1_per_e2):
-        mask = np.where(num_e1_per_e2 == num)[0]
-        for n in range(num):
-            emap[mask, n] = array[num_e1_per_e2.cumsum()[mask] - n - 1]
-    return emap, max_offset
 
 
 def _transfer_tags(
@@ -246,7 +224,7 @@ def _tag_cells(
 
         mesh.topology.create_connectivity(vdim, cdim)
         v2c_connect = mesh.topology.connectivity(vdim, cdim)
-        v2c_map, max_offset = _reshape_map(v2c_connect)
+        v2c_map, max_offset = reshape_map(v2c_connect)
 
     # Create the custom quadrature rule.
     # The quadrature points are evenly spaced on the boundary of the reference cell.
