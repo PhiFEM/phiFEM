@@ -21,4 +21,7 @@ phifem = "==0.7.1.dev2"
 pytest = "*"
 
 [feature.test.tasks]
+build = "python -m build"
+local_install = "python -m pip install -e $(pwd)"
+install = [{task = "build"}, {task = "local_install"}]
 test = "pytest"
