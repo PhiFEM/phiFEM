@@ -1,91 +1,81 @@
-from collections.abc import Callable
-from os import PathLike
-from typing import Tuple
-
 import dolfinx as dfx
 import numpy as np
-import numpy.typing as npt
-import ufl  # type: ignore
 from dolfinx.fem import Function
 from dolfinx.mesh import Mesh, MeshTags
 
 from phifem import measures, tags
 
-PathStr = PathLike[str] | str
 
-NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
+class PhiFEM:
+    def __init__(self, mesh: Mesh, discrete_levelset: Function):
+        self.mesh = mesh
+        self.levelset = discrete_levelset
+        self.box_mode = True
 
+    def tag_cells(self, detection_degree: int, single_layer_cut: bool = False):
+        self.detection_degree = detection_degree
+        self.cells_tags = tags.cells(
+            self.mesh,
+            self.levelset,
+            detection_degree,
+            single_layer_cut=single_layer_cut,
+        )
 
-def compute_tags_measures(
-    mesh: Mesh,
-    discrete_levelset: Function,
-    detection_degree: int,
-    box_mode: bool = False,
-    single_layer_cut: bool = False,
-    overwrite_tags: dict[str, MeshTags] | dict = {},
-) -> Tuple[
-    MeshTags,
-    MeshTags,
-    Mesh | None,
-    ufl.Measure,
-    list[npt.NDArray[np.int32]] | None,
-]:
-    """Compute the mesh (cells and facets) tags as well as the discrete boundary measures.
+    def tag_facets(self):
+        try:
+            assert self.cells_tags is not None
+        except AssertionError:
+            print("You must first tag the cells before tagging the facets.")
 
-    Args:
-        mesh: the mesh on which we compute the tags.
-        levelset: the levelset function used to discriminate the cells.
-        detection_degree: the degree used in the custom quadrature rule of the detection form.
-        box_mode: if False (default), create a submesh and return the cells tags on the submesh, if True, returns cells tags on the input mesh.
-        single_layer_cut: boolean, if True force a single layer of cut cells.
+        self.facets_tags = tags.facets(
+            self.mesh, self.cells_tags, self.levelset, self.detection_degree
+        )
 
-    Returns
-        The mesh/submesh cells tags.
-        The mesh/submesh facets tags.
-        The mesh/submesh (input mesh if box_mode is True).
-        The boundaries measure.
-        Submesh c-map, v-map and n-map.
-    """
-    cells_tags = tags.cells(
-        mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
-    )
-    facets_tags = tags.facets(mesh, cells_tags, discrete_levelset, detection_degree)
+    def overwrite_cells_tags(self, new_cells_tags: MeshTags):
+        if new_cells_tags.dim != self.mesh.topology.dim:
+            raise ValueError(
+                "The MeshTags object you want to use to overwrite is of different dimension to the mesh cells dimension."
+            )
 
-    if "cells" in overwrite_tags.keys():
-        ow_cells_tags = overwrite_tags["cells"]
-        if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
+        if np.any(np.isin([1, 2, 3], new_cells_tags.values)):
             raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
-        cells_tags = tags.overwrite(mesh, cells_tags, ow_cells_tags)
-    if "facets" in overwrite_tags.keys():
-        ow_facets_tags = overwrite_tags["facets"]
-        if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
+        self.cells_tags = tags.overwrite(self.mesh, self.cells_tags, new_cells_tags)
+
+    def overwrite_facets_tags(self, new_facets_tags: MeshTags):
+        if new_facets_tags.dim != self.mesh.topology.dim - 1:
+            raise ValueError(
+                "The MeshTags object you want to use to overwrite is of different dimension to the mesh cells dimension."
+            )
+
+        if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], new_facets_tags.values)):
             raise ValueError(
                 "Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101."
             )
-        facets_tags = tags.overwrite(mesh, facets_tags, ow_facets_tags)
+        self.facets_tags = tags.overwrite(self.mesh, self.facets_tags, new_facets_tags)
 
-    boundaries_measure = measures.one_sided_boundary(
-        mesh, cells_tags, facets_tags, box_mode
-    )
+    def restrict_mesh(self):
 
-    if box_mode:
-        submesh = None
-        submesh_maps = None
-    else:
+        if self.cells_tags is None:
+            raise ValueError("You must tag the cells before restricting the mesh.")
+
         # We create the submesh
-        omega_h_cells = np.unique(np.hstack([cells_tags.find(1), cells_tags.find(2)]))
+        omega_h_cells = np.unique(
+            np.hstack([self.cells_tags.find(1), self.cells_tags.find(2)])
+        )
         submesh, c_map, v_map, n_map = dfx.mesh.create_submesh(
-            mesh, mesh.topology.dim, omega_h_cells
+            self.mesh, self.mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        cells_tags = tags.transfer(cells_tags, submesh, c_map)
-        facets_tags = tags.transfer(facets_tags, submesh, c_map, source_mesh=mesh)
-        submesh_maps = [c_map, v_map, n_map]
+        self.cells_tags = tags.transfer(self.cells_tags, submesh, c_map)
+        if self.facets_tags is not None:
+            self.facets_tags = tags.transfer(
+                self.facets_tags, submesh, c_map, source_mesh=self.mesh
+            )
+        self.submesh_maps = [c_map, v_map, n_map]
+        self.mesh = submesh
+        self.box_mode = False
 
-    return (
-        cells_tags,
-        facets_tags,
-        submesh,
-        boundaries_measure,
-        submesh_maps,
-    )
+    def compute_ds(self):
+        self.ds = measures.one_sided_boundary(
+            self.mesh, self.cells_tags, self.facets_tags, self.box_mode
+        )
