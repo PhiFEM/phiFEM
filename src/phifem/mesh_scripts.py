@@ -46,41 +46,30 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(
+    cells_tags = tags.cells(
         mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
     )
-    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+    facets_tags = tags.facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
     if "cells" in overwrite_tags.keys():
         ow_cells_tags = overwrite_tags["cells"]
         if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
             raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
-        cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
+        cells_tags = tags.overwrite(mesh, cells_tags, ow_cells_tags)
     if "facets" in overwrite_tags.keys():
         ow_facets_tags = overwrite_tags["facets"]
         if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
             raise ValueError(
                 "Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101."
             )
-        facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
+        facets_tags = tags.overwrite(mesh, facets_tags, ow_facets_tags)
+
+    boundaries_measure = measures.one_sided_boundary(
+        mesh, cells_tags, facets_tags, box_mode
+    )
 
     if box_mode:
         submesh = None
-        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
-        integration_entities_outside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(4), 100
-        )
-        integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
-        integration_entities_inside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(3), 101
-        )
-        combined_integration_entities = (
-            integration_entities_outside + integration_entities_inside
-        )
-
-        boundaries_measure = ufl.Measure(
-            "ds", domain=mesh, subdomain_data=combined_integration_entities
-        )
         submesh_maps = None
     else:
         # We create the submesh

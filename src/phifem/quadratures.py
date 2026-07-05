@@ -2,7 +2,7 @@ import numpy as np
 import numpy.typing as npt
 
 
-def segment_points(N: int) -> npt.NDArray[np.float64]:
+def segment(N: int) -> npt.NDArray[np.float64]:
     """Generate quadrature points on the reference segment.
 
     Args:
@@ -17,7 +17,7 @@ def segment_points(N: int) -> npt.NDArray[np.float64]:
     return np.atleast_2d(points).T
 
 
-def triangle_points(N: int) -> npt.NDArray[np.float64]:
+def triangle(N: int) -> npt.NDArray[np.float64]:
     """Generate boundary quadrature points on the reference triangle cell.
 
     Args:
@@ -42,7 +42,7 @@ def triangle_points(N: int) -> npt.NDArray[np.float64]:
     return points
 
 
-def square_points(N: int) -> npt.NDArray[np.float64]:
+def square(N: int) -> npt.NDArray[np.float64]:
     """Generate boundary quadrature points on the reference square cell.
 
     Args:
