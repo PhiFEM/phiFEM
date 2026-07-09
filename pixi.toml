@@ -7,6 +7,7 @@ version = "0.7.0"
 
 [environments]
 test = ["test"]
+dev = {features = ["dev"], no-default-feature = true}
 
 [dependencies]
 python = ">=3.9.0"
@@ -16,6 +17,16 @@ mpich = ">=4.3.2,<5"
 
 [pypi-dependencies]
 phifem = "==0.7.1.dev2"
+
+[feature.dev.dependencies]
+python = ">=3.9.0"
+numpy = ">=1.21"
+fenics-dolfinx = "==0.9.0"
+mpich = ">=4.3.2,<5"
+packaging = ">=26.2,<27"
+
+[feature.dev.activation]
+scripts = ["dev-activation.sh"]
 
 [feature.test.dependencies]
 pytest = "*"
