@@ -9,6 +9,15 @@ import basix
 from phifem.tags import _compute_detection_vector
 from phifem.measures import detection
 
+def _interior_test(x):
+    return np.isclose(x, -1.)
+
+def _exterior_test(x):
+    return np.isclose(x, 1.)
+
+def _cut_test(x):
+    return np.logical_and(x > -1., x < 1.)
+
 mesh = dfx.mesh.create_unit_square(MPI.COMM_WORLD, 2, 2)
 all_cells = dfx.mesh.locate_entities(mesh, mesh.topology.dim, lambda x: np.ones_like(x[0]).astype(bool))
 bdy_facets = dfx.mesh.locate_entities_boundary(mesh, mesh.topology.dim - 1, lambda x: np.ones_like(x[0]).astype(bool))
@@ -18,8 +27,9 @@ test_mesh = [mesh]
 def levelset_1(x):
     return (x[0]- 0.5)**2+x[1]**2-0.2**2
 
-benchmark_cells_1_1 = np.array([False] * len(all_cells))
-benchmark_cells_1_2 = np.array([True, True, True, False, False, False, False, False])
+benchmark_cells_1_1 = np.array([1.] * len(all_cells))
+benchmark_cells_1_2 = np.array([0.5, 0.5, 0.5, 1., 1., 1., 1., 1.])
+benchmark_facets_1_1 = np.array([1.] * len(bdy_facets))
 
 # data = (levelset, measure_degree, cell_type, measure_integral_type, benchmark)
 data_1 = (levelset_1, 0, "triangle", "dx", benchmark_cells_1_1)
@@ -49,8 +59,8 @@ def test_compute_detection_vector(mesh, levelset, cell_type, measure_degree, mea
 
     assert len(detection_vector) == len(all_entities)
 
-    cut_detection = np.logical_and(detection_vector < 1., detection_vector > 0.)
-    assert np.all(cut_detection == benchmark)
+    for detection_test in [_interior_test, _exterior_test, _cut_test]:
+        assert np.all(detection_test(detection_vector) == detection_test(benchmark))
 
 if __name__=="__main__":
     test_compute_detection_vector(test_mesh + data_4)

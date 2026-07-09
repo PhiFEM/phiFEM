@@ -78,7 +78,7 @@ def detection(mesh: Mesh, detection_degree: int, cell_type: str, integral_type: 
         The detection measure as a ufl.Measure object.
     """
     fallback_quadrature = False
-    if cell_type == "segment":
+    if cell_type == "interval":
         points = quad.segment(detection_degree)
     elif cell_type == "triangle":
         points = quad.triangle(detection_degree)
