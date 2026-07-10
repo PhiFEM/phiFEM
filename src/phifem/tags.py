@@ -13,7 +13,8 @@ from dolfinx.mesh import Mesh, MeshTags
 from ufl import inner
 
 from phifem import measures
-from phifem.utils import reshape_map
+from phifem.utils import reshape_map, interpolate_to_surface_submesh
+from phifem.measures import _compute_integration_entities
 
 debug_mode = False
 if "MODE" in os.environ:
@@ -223,17 +224,30 @@ def facets(
     background_mesh_boundary_facets = dfx.mesh.locate_entities_boundary(
         mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
     )
+    background_mesh_boundary_cells = dfx.mesh.compute_incident_entities(mesh.topology, background_mesh_boundary_facets, fdim, mesh.topology.dim)
 
+    integration_entities = _compute_integration_entities(mesh, background_mesh_boundary_cells, background_mesh_boundary_facets, 0)[0][1]
     surface_mesh, parent_facets = dfx.mesh.create_submesh(
         mesh, fdim, background_mesh_boundary_facets
     )[:2]
+    integration_entities = integration_entities.reshape(-1, 4).copy()
+    levelset_degree = discrete_levelset.ufl_element().degree
+    if levelset_degree == 0:
+        levelset_family = "DG"
+    else:
+        levelset_family = discrete_levelset.ufl_element().family_name
+    
+    surface_element = element(levelset_family, surface_mesh.topology.cell_name(), levelset_degree)
+    surface_space = dfx.fem.functionspace(surface_mesh, surface_element)
+    surface_levelset = dfx.fem.Function(surface_space)
 
+    interpolate_to_surface_submesh(discrete_levelset, surface_levelset, background_mesh_boundary_facets, np.asarray(integration_entities))
     surface_detection_measure = measures.detection(
         surface_mesh, detection_degree, "interval", "dx"
     )
 
     surface_detection_vector = _compute_detection_vector(
-        surface_mesh, discrete_levelset, surface_detection_measure
+        surface_mesh, surface_levelset, surface_detection_measure
     )
     mask_surface_cut_facets = np.logical_and(
         surface_detection_vector > -1.0, surface_detection_vector < 1.0

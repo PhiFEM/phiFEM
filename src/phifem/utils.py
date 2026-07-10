@@ -1,11 +1,9 @@
 import dolfinx as dfx
 import numpy as np
 import numpy.typing as npt
-import ufl
-from dfx.cpp.graph import AdjacencyList_int32  # type: ignore
-from dfx.mesh import _EntityMap
+from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
 from packaging.version import Version
-
+from typing import Any
 
 def reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
     """Reshape the connected entities mapping.
@@ -34,7 +32,7 @@ def interpolate_to_surface_submesh(
     u_surface: dfx.fem.Function,
     submesh_facets: npt.NDArray[np.int32],
     integration_entities: npt.NDArray[np.int32],
-    entity_maps: list[_EntityMap] | None = None,
+    entity_maps: list[Any] | None = None,
 ):
     """
     This script has been borrowed from
@@ -55,13 +53,9 @@ def interpolate_to_surface_submesh(
         raise RuntimeError(
             "interpolate_to_submesh requires dolfinx version 0.10.0 or higher"
         )
-    ufl_domains = ufl.domain.extract_domains(u_volume)
-    max_tdim_pos = np.argmax(
-        [domain.ufl_cargo().topology.dim for domain in ufl_domains]
-    )
-    mesh = dfx.mesh.Mesh(
-        ufl_domains[max_tdim_pos].ufl_cargo(), ufl_domains[max_tdim_pos]
-    )
+    
+    V_vol = u_volume.function_space
+    mesh = V_vol.mesh
 
     V_surf = u_surface.function_space
     submesh = V_surf.mesh
@@ -77,24 +71,22 @@ def interpolate_to_surface_submesh(
     data = expr.eval(mesh, integration_entities)
     submesh.topology.create_entity_permutations()
     mesh.topology.create_entity_permutations()
-    ft = V_surf.element.basix_element.cell_type
-
-    if Version(dfx.__version__) < Version("0.11.0.dev0"):
-        V_vol = u_volume.function_space
-        mesh = V_vol.mesh
-        # Before the introduction of https://github.com/FEniCS/dolfinx/pull/4140
-        # one needed to permute the data according to the facet permutations.
-        cell_info = mesh.topology.get_cell_permutation_info()
-        for i in range(integration_entities.shape[0]):
-            perm = np.arange(data.shape[1], dtype=np.int32)
-            V_vol.element.basix_element.permute_subentity_closure_inv(
-                perm,
-                cell_info[integration_entities[i, 0]],
-                ft,
-                int(integration_entities[i, 1]),
-            )
-            data[i] = data[i][perm]
-
+    # ft = V_surf.element.basix_element.cell_type
+    # if Version(dfx.__version__) < Version("0.11.0.dev0"):
+    #     V_vol = u_volume.function_space
+    #     mesh = V_vol.mesh
+    #     # Before the introduction of https://github.com/FEniCS/dolfinx/pull/4140
+    #     # one needed to permute the data according to the facet permutations.
+    #     cell_info = mesh.topology.get_cell_permutation_info()
+    #     for i in range(integration_entities.shape[0]):
+    #         perm = np.arange(data.shape[1], dtype=np.int32)
+    #         V_vol.element.basix_element.permute_subentity_closure_inv(
+    #             perm,
+    #             cell_info[integration_entities[i, 0]],
+    #             ft,
+    #             int(integration_entities[i, 1]),
+    #         )
+    #         data[i] = data[i][perm]
     if len(data.shape) == 3:
         # Data is now (num_cells, value_size,num_points)
         data = data.swapaxes(1, 2)
