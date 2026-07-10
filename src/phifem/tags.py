@@ -224,14 +224,24 @@ def facets(
         mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
     )
 
-    detection_measure = measures.detection(mesh, detection_degree, "segment", "ds")
+    surface_mesh, parent_facets = dfx.mesh.create_submesh(
+        mesh, fdim, background_mesh_boundary_facets
+    )[:2]
 
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
+    surface_detection_measure = measures.detection(
+        surface_mesh, detection_degree, "interval", "dx"
     )
-    print("facets detection = ", detection_vector)
+
+    surface_detection_vector = _compute_detection_vector(
+        surface_mesh, discrete_levelset, surface_detection_measure
+    )
+    mask_surface_cut_facets = np.logical_and(
+        surface_detection_vector > -1.0, surface_detection_vector < 1.0
+    )
+    cut_boundary_facets = parent_facets[mask_surface_cut_facets]
+
     mask_cut_indices_cells = np.logical_and(
-        detection_vector > -1.0, detection_vector < 1.0
+        surface_detection_vector > -1.0, surface_detection_vector < 1.0
     )
     cut_indices_cells = np.where(mask_cut_indices_cells)[0]
     comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
