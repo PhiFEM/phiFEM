@@ -9,9 +9,9 @@ import dolfinx as dfx
 import numpy as np
 import numpy.typing as npt
 import ufl  # type: ignore
-from basix.ufl import element
+from basix.ufl import _ElementBase, element
 from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
-from dolfinx.fem import Function
+from dolfinx.fem import Expression, Function, FunctionSpace
 from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
 from ufl import inner
@@ -283,8 +283,7 @@ def _transfer_tags(
 
 def _tag_cells(
     mesh: Mesh,
-    discrete_levelset: Function,
-    detection_degree: int,
+    levelset_expression: Expression,
     single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
@@ -301,8 +300,23 @@ def _tag_cells(
     Returns:
         The cells tags as a MeshTags object.
     """
+    cdim = mesh.topology.dim
+    all_cells = dfx.mesh.locate_entities(
+        mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    levelset_eval = levelset_expression.eval(mesh, all_cells)
+
+    cells_tags = 2 * np.ones_like(levelset_eval.shape[0]).astype(int)
+
+    exterior = np.min(levelset_eval, axis=1) > 0.0
+    interior = np.max(levelset_eval, axis=1) < 0.0
+    cut = np.logical_not(np.logical_or(exterior, interior))
+
+    exterior_indices = np.where(exterior)[0]
+    interior_indices = np.where(interior)[0]
+    cut_indices = np.where(cut)[0]
+
     if single_layer_cut:
-        cdim = mesh.topology.dim
         vdim = 0
         # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
         mesh.topology.create_connectivity(cdim, vdim)
@@ -314,39 +328,6 @@ def _tag_cells(
         v2c_connect = mesh.topology.connectivity(vdim, cdim)
         v2c_map, max_offset = _reshape_map(v2c_connect)
 
-    # Create the custom quadrature rule.
-    # The quadrature points are evenly spaced on the boundary of the reference cell.
-    # The weights are 1.
-    cell_type = mesh.topology.cell_type.name
-
-    if cell_type == "triangle":
-        points = _reference_triangle_boundary_points(detection_degree)
-    elif cell_type == "quadrilateral":
-        points = _reference_square_boundary_points(detection_degree)
-    else:
-        raise NotImplementedError(
-            "Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'"
-        )
-    weights = np.ones_like(points[:, 0])
-
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
-
-    detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
-
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
-    )
-    cut_indices = np.where(
-        np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
-    )[0]
-    exterior_indices = np.where(detection_vector == 1.0)[0]
-    interior_indices = np.where(detection_vector == -1.0)[0]
-
-    if single_layer_cut:
         neighbor_cells = np.reshape(
             v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
         )
@@ -382,7 +363,6 @@ def _tag_cells(
     cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
     markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
-
     cells_tags = dfx.mesh.meshtags(
         mesh, mesh.topology.dim, indices[sorted_indices], markers[sorted_indices]
     )
@@ -572,8 +552,8 @@ def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
 
 def compute_tags_measures(
     mesh: Mesh,
-    discrete_levelset: Function,
-    detection_degree: int,
+    levelset: Function | Callable,
+    detection_space: FunctionSpace,
     box_mode: bool = False,
     single_layer_cut: bool = False,
     overwrite_tags: dict[str, MeshTags] | None = None,
@@ -600,8 +580,25 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
+
+    # Sanitize levelset input
+    try:
+        levelset_expression = dfx.fem.Expression(
+            levelset, detection_space.element.interpolation_points()
+        )
+    except AttributeError:
+        try:
+            x = mesh.SpatialCoordinate(mesh)
+            levelset_expression = dfx.fem.Expression(
+                levelset(x), detection_space.element.interpolation_points()
+            )
+        except TypeError:
+            print(
+                "Invalid levelset type: must be either a dolfinx.fem.Function or a UFL based Callable."
+            )
+
     cells_tags = _tag_cells(
-        mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
+        mesh, levelset_expression, single_layer_cut=single_layer_cut
     )
     facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
