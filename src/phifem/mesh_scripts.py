@@ -1,8 +1,9 @@
+from __future__ import annotations
+
 import os
 import warnings
 from collections.abc import Callable
 from os import PathLike
-from typing import Any, Tuple
 
 import dolfinx as dfx
 import numpy as np
@@ -20,9 +21,8 @@ PathStr = PathLike[str] | str
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
 debug_mode = False
-if "MODE" in os.environ:
-    if os.environ["MODE"] == "debug":
-        debug_mode = True
+if "MODE" in os.environ and os.environ["MODE"] == "debug":
+    debug_mode = True
 
 
 def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
@@ -217,7 +217,7 @@ def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
 def _transfer_tags(
     source_mesh_tags: MeshTags,
     dest_mesh: Mesh,
-    cmap: npt.NDArray[Any],
+    cmap: npt.NDArray,
     source_mesh: Mesh = None,
 ) -> MeshTags:
     """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
@@ -564,7 +564,9 @@ def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
     overwritten_indices, ind = np.unique(stack_indices, return_index=True)
     overwritten_values = stack_values[ind]
 
-    overwritten_tags = dfx.mesh.meshtags(mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values)
+    overwritten_tags = dfx.mesh.meshtags(
+        mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values
+    )
     return overwritten_tags
 
 
@@ -574,8 +576,8 @@ def compute_tags_measures(
     detection_degree: int,
     box_mode: bool = False,
     single_layer_cut: bool = False,
-    overwrite_tags: dict[str,MeshTags] | dict = {},
-) -> Tuple[
+    overwrite_tags: dict[str, MeshTags] | None = None,
+) -> tuple[
     MeshTags,
     MeshTags,
     Mesh | None,
@@ -603,16 +605,19 @@ def compute_tags_measures(
     )
     facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
 
-    if "cells" in overwrite_tags.keys():
-        ow_cells_tags = overwrite_tags["cells"]
-        if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
-            raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
-        cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
-    if "facets" in overwrite_tags.keys():
-        ow_facets_tags = overwrite_tags["facets"]
-        if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
-            raise ValueError("Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101.")
-        facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
+    if overwrite_tags is not None:
+        if "cells" in overwrite_tags:
+            ow_cells_tags = overwrite_tags["cells"]
+            if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
+                raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
+            cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
+        if "facets" in overwrite_tags:
+            ow_facets_tags = overwrite_tags["facets"]
+            if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
+                raise ValueError(
+                    "Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101."
+                )
+            facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
 
     if box_mode:
         submesh = None
