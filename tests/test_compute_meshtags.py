@@ -103,7 +103,7 @@ data_7 = (
 )
 testdata = [data_1, data_2, data_3, data_4, data_5, data_6, data_7]
 
-testdegrees = [1, 2, 3]
+testspaces = [1, 2, 3]
 
 testdiscretize = [True, False]
 
@@ -116,7 +116,7 @@ parent_dir = os.path.dirname(__file__)
 
 @pytest.mark.parametrize("box_mode", testboxmode)
 @pytest.mark.parametrize("discretize", testdiscretize)
-@pytest.mark.parametrize("detection_degree", testdegrees)
+@pytest.mark.parametrize("detection_degree", testspaces)
 @pytest.mark.parametrize("single_layer_cut", testsingle_layer_cut)
 @pytest.mark.parametrize("data_name, mesh_name, generate_levelset", testdata)
 def test_compute_meshtags(
@@ -247,7 +247,7 @@ if __name__ == "__main__":
     from utils_test import save_levelset, save_tags
 
     testdata_main = testdata
-    testdegrees_main = testdegrees
+    testdegrees_main = testspaces
     testdiscretize = [False, True]
     testboxmode = [False, True]
     testsingle_layer_cut = [False, True]
