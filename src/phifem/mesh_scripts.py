@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import typing
 import warnings
 from collections.abc import Callable
 from os import PathLike
@@ -371,7 +372,7 @@ def _transfer_tags(
         dest_c2f_map = dest_c2f_map.reshape(
             -1,
         )
-        unique_indices, sorted_indices = np.unique(dest_c2f_map, return_index=True)
+        sorted_indices = np.unique(dest_c2f_map, return_index=True)[1]
         emap = source_c2f_dest_map[sorted_indices]
     else:
         raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
@@ -483,11 +484,30 @@ def _tag_cells(
     return cells_tags
 
 
+def _cells_facets_pairs(f2c_map, c2f_map, facets):
+    """Get integration entities cells-facets pairs for the corresponding facets indices.
+
+    Args:
+        f2c_map: the facet to cell connectivity mapping.
+        c2f_map: the cell to facet connectivity mapping.
+        facets: the facets indices to get the pairs from.
+
+    Returns: the local indices of
+    """
+    connected_cells = f2c_map[facets][:, 0]
+    facets_connected_cells = c2f_map[connected_cells]
+    facets_tiled = np.tile(facets[..., None], facets_connected_cells.shape[1])
+    mask = facets_tiled == facets_connected_cells
+    local_indices = np.where(mask)[1]
+    pairs = np.hstack([connected_cells.T, local_indices.T])
+    return pairs
+
+
 def _tag_facets(
     mesh: Mesh,
-    cells_tags: MeshTags,
-    discrete_levelset: Function,
-    detection_degree: int,
+    levelset_expression: Expression,
+    cells_tags: MeshTags | None = None,
+    single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
