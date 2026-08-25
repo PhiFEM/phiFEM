@@ -554,14 +554,7 @@ def _tag_facets(
 
     exterior_int = np.min(levelset_eval_int, axis=1) > 0.0
     interior_int = np.max(levelset_eval_int, axis=1) < 0.0
-    cut_int = np.logical_not(np.logical_or(exterior_int, interior_int))
     direct_int = np.isclose(np.sum(np.abs(levelset_eval_int), axis=1), 0.0)
-
-    exterior_indices_int = interior_facets[exterior_int]
-    interior_indices_int = interior_facets[interior_int]
-    cut_indices_int = interior_facets[cut_int]
-    direct_indices_int = interior_facets[direct_int]
-    cut_indices_int = np.setdiff1d(cut_indices_int, direct_indices_int)
 
     connected_cells = f2c_map[boundary_facets][:, 0]
 
@@ -571,19 +564,19 @@ def _tag_facets(
     levelset_eval_bdy = levelset_expression_facets.eval(mesh, cell_facet_pairs)
     exterior_bdy = np.min(levelset_eval_bdy, axis=1) > 0.0
     interior_bdy = np.max(levelset_eval_bdy, axis=1) < 0.0
-    cut_bdy = np.logical_not(np.logical_or(exterior_bdy, interior_bdy))
     direct_bdy = np.isclose(np.sum(np.abs(levelset_eval_bdy), axis=1), 0.0)
 
-    exterior_indices_bdy = boundary_facets[exterior_bdy]
-    interior_indices_bdy = boundary_facets[interior_bdy]
-    cut_indices_bdy = boundary_facets[cut_bdy]
-    direct_indices_bdy = boundary_facets[direct_bdy]
-    cut_indices_bdy = np.setdiff1d(cut_indices_bdy, direct_indices_bdy)
+    facets_indices = np.hstack([interior_facets, boundary_facets])
+    exterior = np.hstack([exterior_int, exterior_bdy])
+    interior = np.hstack([interior_int, interior_bdy])
+    direct = np.hstack([direct_int, direct_bdy])
+    exterior_indices = facets_indices[exterior]
+    interior_indices = facets_indices[interior]
+    direct_indices = facets_indices[direct]
 
-    interior_indices = np.union1d(interior_indices_bdy, interior_indices_int)
-    exterior_indices = np.union1d(exterior_indices_bdy, exterior_indices_int)
-    direct_indices = np.union1d(direct_indices_bdy, direct_indices_int)
-    cut_indices = np.union1d(cut_indices_int, cut_indices_bdy)
+    cut = np.logical_not(np.logical_or(exterior, interior))
+    cut_indices = facets_indices[cut]
+    cut_indices = np.setdiff1d(cut_indices, direct_indices)
 
     # Compute the list of facets on the boundary of the union of cut cells
     boundary_cut_indices = _compute_subdomain_exterior_facets(mesh, cells_tags, [2])
@@ -595,14 +588,11 @@ def _tag_facets(
     boundary_interior_indices = np.setdiff1d(boundary_interior_indices, direct_indices)
     exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
 
-    boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, boundary_facets)
-    boundary_interior_indices = np.setdiff1d(boundary_interior_indices, boundary_facets)
-
     # Only exterior_facets might be empty
     if debug_mode:
-        if len(interior_indices_int) == 0:
+        if len(interior_indices) == 0:
             raise ValueError("No interior facets (1)!")
-        if len(cut_indices_int) == 0:
+        if len(cut_indices) == 0:
             print("WARNING: no cut facet computed in the partition.")
         if len(boundary_interior_indices) == 0:
             raise ValueError("No boundary facets (4)!")
@@ -610,10 +600,10 @@ def _tag_facets(
         # The lists must not intersect
         names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
         for i, facets_list_1 in enumerate(
-            [interior_indices_int, cut_indices_int, boundary_interior_indices]
+            [interior_indices, cut_indices, boundary_interior_indices]
         ):
             for j, facets_list_2 in enumerate(
-                [interior_indices_int, cut_indices_int, boundary_interior_indices]
+                [interior_indices, cut_indices, boundary_interior_indices]
             ):
                 if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
                     raise ValueError(
