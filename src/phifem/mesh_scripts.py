@@ -492,14 +492,14 @@ def _cells_facets_pairs(f2c_map, c2f_map, facets):
         c2f_map: the cell to facet connectivity mapping.
         facets: the facets indices to get the pairs from.
 
-    Returns: the local indices of
+    Returns: the local indices of facets in their corresponding cells ordered as [cell_1 local_facet cell_2 local_facet cell_3 local_facet ...]
     """
     connected_cells = f2c_map[facets][:, 0]
     facets_connected_cells = c2f_map[connected_cells]
     facets_tiled = np.tile(facets[..., None], facets_connected_cells.shape[1])
     mask = facets_tiled == facets_connected_cells
     local_indices = np.where(mask)[1]
-    pairs = np.hstack([connected_cells.T, local_indices.T])
+    pairs = np.ravel([connected_cells.T, local_indices.T], "F")
     return pairs
 
 
