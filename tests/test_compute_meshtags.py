@@ -131,7 +131,7 @@ def test_compute_meshtags(
     plot=False,
 ):
     data_name = data_name + "_" + str(detection_degree)
-    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
+    mesh_path = os.path.join(parent_dir, "data", mesh_name + ".xdmf")
 
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
@@ -181,7 +181,7 @@ def test_compute_meshtags(
     if save_as_benchmark:
         cells_benchmark = np.vstack([cells_tags.indices, cells_tags.values])
         np.savetxt(
-            os.path.join(parent_dir, "tests_data", benchmark_cells_name + ".csv"),
+            os.path.join(parent_dir, "data", benchmark_cells_name + ".csv"),
             cells_benchmark,
             delimiter=" ",
             newline="\n",
@@ -189,7 +189,7 @@ def test_compute_meshtags(
 
         facets_benchmark = np.vstack([facets_tags.indices, facets_tags.values])
         np.savetxt(
-            os.path.join(parent_dir, "tests_data", benchmark_facets_name + ".csv"),
+            os.path.join(parent_dir, "data", benchmark_facets_name + ".csv"),
             facets_benchmark,
             delimiter=" ",
             newline="\n",
@@ -197,7 +197,7 @@ def test_compute_meshtags(
     else:
         try:
             cells_benchmark = np.loadtxt(
-                os.path.join(parent_dir, "tests_data", benchmark_cells_name + ".csv"),
+                os.path.join(parent_dir, "data", benchmark_cells_name + ".csv"),
                 delimiter=" ",
             )
         except FileNotFoundError:
@@ -206,7 +206,7 @@ def test_compute_meshtags(
             )
         try:
             facets_benchmark = np.loadtxt(
-                os.path.join(parent_dir, "tests_data", benchmark_facets_name + ".csv"),
+                os.path.join(parent_dir, "data", benchmark_facets_name + ".csv"),
                 delimiter=" ",
             )
         except FileNotFoundError:

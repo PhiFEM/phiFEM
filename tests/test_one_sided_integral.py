@@ -117,7 +117,7 @@ def test_one_sided_integral(
     discretize,
     plot=False,
 ):
-    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
+    mesh_path = os.path.join(parent_dir, "data", mesh_name + ".xdmf")
 
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
