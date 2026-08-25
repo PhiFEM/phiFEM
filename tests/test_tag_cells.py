@@ -122,7 +122,7 @@ parent_dir = os.path.dirname(__file__)
 @pytest.mark.parametrize("detection_degree", testdegrees)
 @pytest.mark.parametrize("single_layer_cut", testsingle_layer_cut)
 @pytest.mark.parametrize("data_name, mesh_name, generate_levelset", testdata)
-def test_compute_meshtags(
+def test_tag_cells(
     data_name,
     mesh_name,
     generate_levelset,
@@ -133,7 +133,7 @@ def test_compute_meshtags(
     plot=False,
 ):
     data_name = data_name + "_" + str(detection_degree)
-    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
+    mesh_path = os.path.join(parent_dir, "data", mesh_name + ".xdmf")
 
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
@@ -173,8 +173,8 @@ def test_compute_meshtags(
         np.savetxt(
             os.path.join(
                 parent_dir,
-                "tests_data",
-                "test_tag_cells",
+                "data",
+                "tag_cells_data",
                 benchmark_cells_name + ".csv",
             ),
             cells_benchmark,
@@ -187,8 +187,8 @@ def test_compute_meshtags(
             cells_benchmark = np.loadtxt(
                 os.path.join(
                     parent_dir,
-                    "tests_data",
-                    "test_tag_cells",
+                    "data",
+                    "tag_cells_data",
                     benchmark_cells_name + ".csv",
                 ),
                 delimiter=" ",
@@ -199,8 +199,11 @@ def test_compute_meshtags(
             )
 
     if plot:
+        plot_dir = os.path.join(parent_dir, "plot_test_tag_cells")
+        if not os.path.isdir(plot_dir):
+            os.mkdir(plot_dir)
         save_tags(
-            mesh, os.path.join(parent_dir, benchmark_cells_name + ".xdmf"), cells_tags
+            mesh, os.path.join(plot_dir, benchmark_cells_name + ".xdmf"), cells_tags
         )
 
     assert np.all(cells_tags.indices == cells_benchmark[0, :])
@@ -219,11 +222,11 @@ if __name__ == "__main__":
         for test_degree in testdegrees_main:
             for test_discretize in testdiscretize:
                 for single_layer_cut in testsingle_layer_cut:
-                    test_compute_meshtags(
+                    test_tag_cells(
                         *test_data,
                         test_degree,
                         test_discretize,
                         single_layer_cut=single_layer_cut,
-                        save_as_benchmark=True,
+                        save_as_benchmark=False,
                         plot=True,
                     )
