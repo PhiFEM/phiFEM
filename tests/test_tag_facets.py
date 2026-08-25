@@ -122,7 +122,7 @@ parent_dir = os.path.dirname(__file__)
 @pytest.mark.parametrize("detection_degree", testdegrees)
 @pytest.mark.parametrize("single_layer_cut", testsingle_layer_cut)
 @pytest.mark.parametrize("data_name, mesh_name, generate_levelset", testdata)
-def test_compute_meshtags(
+def test_tag_facets(
     data_name,
     mesh_name,
     generate_levelset,
@@ -133,7 +133,7 @@ def test_compute_meshtags(
     plot=False,
 ):
     data_name = data_name + "_" + str(detection_degree)
-    mesh_path = os.path.join(parent_dir, "tests_data", mesh_name + ".xdmf")
+    mesh_path = os.path.join(parent_dir, "data", mesh_name + ".xdmf")
 
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
@@ -151,8 +151,6 @@ def test_compute_meshtags(
 
     if discretize:
         levelset = generate_levelset(np)
-        cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
-        space = dfx.fem.functionspace(mesh, cg_element)
         levelset_test = dfx.fem.Function(space)
         levelset_test.interpolate(levelset)
     else:
@@ -161,28 +159,26 @@ def test_compute_meshtags(
 
     # Must pass points of dimension == dimension of the element on which we wish to evaluate the expression.
     reference_facet_points = np.array([[0.0], [1.0]], dtype=np.float64)
-    levelset_expression = dfx.fem.Expression(levelset_test, reference_facet_points)
+    levelset_expression_facets = dfx.fem.Expression(
+        levelset_test, reference_facet_points
+    )
+    reference_cell_points = space.element.interpolation_points()
+    levelset_expression_cells = dfx.fem.Expression(levelset_test, reference_cell_points)
 
     facets_tags = _tag_facets(
-        mesh, levelset_expression, single_layer_cut=single_layer_cut
+        mesh,
+        levelset_expression_facets,
+        levelset_expression_cells=levelset_expression_cells,
+        single_layer_cut=single_layer_cut,
     )
-    all_facets = dfx.mesh.locate_entities(
-        mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
-    )
-    bdy_facets = dfx.mesh.locate_entities_boundary(
-        mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
-    )
-    print(len(all_facets))
-    print(len(bdy_facets))
-    print(len(all_facets) - len(bdy_facets))
     # To save benchmark
     if save_as_benchmark:
         facets_benchmark = np.vstack([facets_tags.indices, facets_tags.values])
         np.savetxt(
             os.path.join(
                 parent_dir,
-                "tests_data",
-                "test_tag_facets",
+                "data",
+                "tag_facets_data",
                 benchmark_facets_name + ".csv",
             ),
             facets_benchmark,
@@ -195,8 +191,8 @@ def test_compute_meshtags(
             facets_benchmark = np.loadtxt(
                 os.path.join(
                     parent_dir,
-                    "tests_data",
-                    "test_tag_facets",
+                    "data",
+                    "tag_facets_data",
                     benchmark_facets_name + ".csv",
                 ),
                 delimiter=" ",
@@ -207,9 +203,27 @@ def test_compute_meshtags(
             )
 
     if plot:
-        print("plot ", benchmark_facets_name)
+        plot_dir = os.path.join(parent_dir, "plot_test_tag_facets")
+        if not os.path.isdir(plot_dir):
+            os.mkdir(plot_dir)
+        fig = plt.figure()
+        ax = fig.subplots()
+        all_facets = dfx.mesh.locate_entities(
+            mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
+        )
+        all_cells = dfx.mesh.locate_entities(
+            mesh, 2, lambda x: np.ones_like(x[0]).astype(bool)
+        )
+        plot_indices(mesh, 1, ax, all_facets)
+        plot_indices(mesh, 2, ax, all_cells)
+        ax.set_axis_off()
+        plt.savefig(
+            os.path.join(plot_dir, benchmark_facets_name + ".png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
         save_tags(
-            mesh, os.path.join(parent_dir, benchmark_facets_name + ".xdmf"), facets_tags
+            mesh, os.path.join(plot_dir, benchmark_facets_name + ".xdmf"), facets_tags
         )
         levelset = generate_levelset(np)
         cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
@@ -229,10 +243,12 @@ def test_compute_meshtags(
 
 
 if __name__ == "__main__":
+    import matplotlib.pyplot as plt
+    from pydouillaj.pydouille import plot_indices
     from utils_test import save_tags
 
-    testdata_main = [testdata[5]]
-    testdegrees_main = [testdegrees[0]]
+    testdata_main = testdata
+    testdegrees_main = testdegrees
     testdiscretize = [False, True]
     testsingle_layer_cut = [False, True]
     for test_data in testdata_main:
@@ -240,11 +256,11 @@ if __name__ == "__main__":
         for test_degree in testdegrees_main:
             for test_discretize in testdiscretize:
                 for single_layer_cut in testsingle_layer_cut:
-                    test_compute_meshtags(
+                    test_tag_facets(
                         *test_data,
                         test_degree,
                         test_discretize,
                         single_layer_cut,
                         save_as_benchmark=True,
-                        plot=True,
+                        plot=False,
                     )
