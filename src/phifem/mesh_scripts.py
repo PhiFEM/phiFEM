@@ -505,8 +505,9 @@ def _cells_facets_pairs(f2c_map, c2f_map, facets):
 
 def _tag_facets(
     mesh: Mesh,
-    levelset_expression: Expression,
+    levelset_expression_facets: Expression,
     cells_tags: MeshTags | None = None,
+    levelset_expression_cells: Expression | None = None,
     single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh facets.
@@ -527,8 +528,11 @@ def _tag_facets(
         The facets tags as a MeshTags object.
     """
     if cells_tags is None:
+        assert levelset_expression_cells is not None, (
+            "You must either pass cells_tags or a levelset expression over the cells of the domain."
+        )
         cells_tags = _tag_cells(
-            mesh, levelset_expression, single_layer_cut=single_layer_cut
+            mesh, levelset_expression_cells, single_layer_cut=single_layer_cut
         )
 
     cdim = mesh.topology.dim
@@ -546,8 +550,8 @@ def _tag_facets(
     interior_facets = np.setdiff1d(all_facets, boundary_facets)
 
     cell_facet_pairs = _cells_facets_pairs(f2c_map, c2f_map, interior_facets)
-    levelset_eval_int = levelset_expression.eval(mesh, cell_facet_pairs)
-    print(levelset_eval_int)
+    levelset_eval_int = levelset_expression_facets.eval(mesh, cell_facet_pairs)
+
     exterior_int = np.min(levelset_eval_int, axis=1) > 0.0
     interior_int = np.max(levelset_eval_int, axis=1) < 0.0
     cut_int = np.logical_not(np.logical_or(exterior_int, interior_int))
@@ -564,7 +568,7 @@ def _tag_facets(
     cell_facet_pairs = _compute_integration_entities(
         mesh, connected_cells, boundary_facets, 0
     )[0][1]
-    levelset_eval_bdy = levelset_expression.eval(mesh, cell_facet_pairs)
+    levelset_eval_bdy = levelset_expression_facets.eval(mesh, cell_facet_pairs)
     exterior_bdy = np.min(levelset_eval_bdy, axis=1) > 0.0
     interior_bdy = np.max(levelset_eval_bdy, axis=1) < 0.0
     cut_bdy = np.logical_not(np.logical_or(exterior_bdy, interior_bdy))
@@ -618,18 +622,6 @@ def _tag_facets(
                         + names[j]
                         + " have a non-empty intersection!"
                     )
-    for name, indices in zip(
-        ["ext", "int", "bdy_ext", "cut", "bdy_int", "dir"],
-        [
-            exterior_indices,
-            interior_indices,
-            boundary_exterior_indices,
-            cut_indices,
-            boundary_interior_indices,
-            direct_indices,
-        ],
-    ):
-        print(name, indices)
     # Create the meshtags from the indices.
     indices = np.hstack(
         [
