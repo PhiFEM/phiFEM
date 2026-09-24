@@ -746,27 +746,25 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
-
-    # Sanitize levelset input
-    try:
-        levelset_expression = dfx.fem.Expression(
-            levelset, detection_space.element.interpolation_points()
-        )
-    except AttributeError:
-        try:
-            x = mesh.SpatialCoordinate(mesh)
-            levelset_expression = dfx.fem.Expression(
-                levelset(x), detection_space.element.interpolation_points()
-            )
-        except TypeError:
-            print(
-                "Invalid levelset type: must be either a dolfinx.fem.Function or a UFL based Callable."
-            )
+    interpolation_points = detection_space.element.interpolation_points()
+    levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
 
     cells_tags = _tag_cells(
         mesh, levelset_expression, single_layer_cut=single_layer_cut
     )
-    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+
+    codim_interpolation_points = _compute_codim_interpolation_points(detection_space)
+    levelset_expression_facets = _levelset_expression(
+        mesh, levelset, codim_interpolation_points
+    )
+
+    facets_tags = _tag_facets(
+        mesh,
+        levelset_expression_facets,
+        cells_tags,
+        levelset_expression,
+        single_layer_cut=single_layer_cut,
+    )
 
     if overwrite_tags is not None:
         if "cells" in overwrite_tags:
