@@ -662,6 +662,60 @@ def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
     return overwritten_tags
 
 
+def _compute_codim_interpolation_points(
+    space: dfx.fem.FunctionSpace,
+) -> np.ndarray[np.float64]:
+    """Compute the same FunctionSpace but defined over a submesh of codim 1.
+
+    Args:
+        space: the original space.
+
+    Return: a new space defined on a mesh of codim 1.
+    """
+    family_name = space.ufl_element().basix_element.family.name
+    degree = space.ufl_element().basix_element.degree
+    tdim = space.mesh.topology.dim
+    codim_mesh = dfx.mesh.create_submesh(space.mesh, tdim - 1, np.array([0.0]))[0]
+    codim_cell_name = codim_mesh.topology.cell_name()
+    new_elmt = element(family_name, codim_cell_name, degree)
+    new_space = dfx.fem.functionspace(codim_mesh, new_elmt)
+    return new_space.element.interpolation_points()
+
+
+def _levelset_expression(
+    mesh: dfx.mesh.Mesh,
+    levelset: Function | Callable,
+    interpolation_points: np.NDarray[np.float64],
+) -> Expression:
+    """Sanitize the levelset input by turning it into an Expression.
+
+    Args:
+        levelset: the levelset function.
+        detection_space: the detection space.
+
+    Return: the levelset as an Expression object.
+    """
+
+    # Sanitize levelset input
+    try:
+        # Test if levelset is a dolfinx.fem.Function
+        _ = levelset.function_space
+        levelset_expression = dfx.fem.Expression(
+            levelset, interpolation_points, comm=mesh.comm
+        )
+    except AttributeError:
+        try:
+            x = ufl.SpatialCoordinate(mesh)
+            levelset_expression = dfx.fem.Expression(
+                levelset(x), interpolation_points, comm=mesh.comm
+            )
+        except TypeError:
+            print(
+                "Invalid levelset type: must be either a dolfinx.fem.Function or a UFL based Callable."
+            )
+    return levelset_expression
+
+
 def compute_tags_measures(
     mesh: Mesh,
     levelset: Function | Callable,
