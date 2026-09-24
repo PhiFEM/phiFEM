@@ -59,14 +59,14 @@ detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
     cells_tags, facets_tags, _, ds_bdy, _ = compute_tags_measures(
-        bg_mesh, detection_levelset_h, 1, box_mode=True
+        bg_mesh, detection_levelset_h, bg_levelset_space, box_mode=True
     )
     mesh = bg_mesh
     # To get the ds measure on the bounday of Omega_h
     ds = ds_bdy(100)
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset_h, 1, box_mode=False
+        bg_mesh, detection_levelset_h, bg_levelset_space, box_mode=False
     )
     ds = ufl.Measure("ds", domain=mesh)
 
