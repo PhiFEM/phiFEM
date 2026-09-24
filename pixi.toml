@@ -11,8 +11,9 @@ dev = ["dev"]
 [dependencies]
 python = ">=3.9.0"
 numpy = ">=1.21"
-fenics-dolfinx = "==0.9.0"
+fenics-dolfinx = ">=0.9.0,<0.11"
 mpich = ">=4.3.2,<5"
+pyaml = ">=26.7.0,<27"
 
 [feature.dev.pypi-dependencies]
 pydouillaj = { git = "https://gitlab.com/rbulle/pydouillaj.git" }
