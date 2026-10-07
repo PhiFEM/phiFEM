@@ -108,12 +108,18 @@ mesh = dfx.mesh.create_rectangle(
     MPI.COMM_WORLD, np.asarray(bbox).T, [nx, ny], cell_type
 )
 
+cell_type = mesh.topology.cell_name()
+detection_element = element(
+    "Lagrange",
+    cell_type,
+    1,
+)
+detection_space = dfx.fem.functionspace(mesh, detection_element)
+
 results = {"dof": [], "H10 relative error": [], "L2 relative error": []}
 for i in range(num_iterations):
-    x_ufl = ufl.SpatialCoordinate(mesh)
-    detection_levelset = levelset(x_ufl)
     cells_tags, facets_tags, _, d_bdry, _ = compute_tags_measures(
-        mesh, detection_levelset, detection_degree, box_mode=True
+        mesh, levelset, detection_space, box_mode=True
     )
 
     gdim = mesh.geometry.dim

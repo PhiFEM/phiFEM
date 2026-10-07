@@ -1,5 +1,6 @@
 import argparse
 import os
+import shutil
 
 import dolfinx as dfx
 import numpy as np
@@ -29,7 +30,8 @@ mesh_type = args.mesh_type
 
 output_dir = os.path.join(parent_dir, mesh_type + "_output")
 
-if not os.path.isdir(output_dir):
+world_comm = MPI.COMM_WORLD
+if world_comm.rank == 0 and not os.path.isdir(output_dir):
     print(f"{output_dir} directory not found, we create it.")
     os.mkdir(os.path.join(parent_dir, output_dir))
 
@@ -59,16 +61,28 @@ detection_levelset_h.interpolate(detection_levelset)
 
 if mesh_type == "bg":
     cells_tags, facets_tags, _, ds_bdy, _ = compute_tags_measures(
-        bg_mesh, detection_levelset_h, 1, box_mode=True
+        bg_mesh, detection_levelset_h, bg_levelset_space, box_mode=True
     )
     mesh = bg_mesh
     # To get the ds measure on the bounday of Omega_h
     ds = ds_bdy(100)
 elif mesh_type == "sub":
     cells_tags, facets_tags, mesh, _, _ = compute_tags_measures(
-        bg_mesh, detection_levelset_h, 1, box_mode=False
+        bg_mesh, detection_levelset_h, bg_levelset_space, box_mode=False
     )
     ds = ufl.Measure("ds", domain=mesh)
+
+dg0_element = element("DG", cell_name, 0)
+dg0_space = dfx.fem.functionspace(mesh, dg0_element)
+
+cells_tags_h = dfx.fem.Function(dg0_space)
+cells_tags_h.name = "cells tags"
+
+local_num_dofs = dg0_space.dofmap.index_map.size_local
+ghosts_dofs = dg0_space.dofmap.index_map.ghosts
+l2g_map = dg0_space.dofmap.index_map.local_to_global(np.arange(local_num_dofs))
+l2g_map = np.sort(np.hstack([l2g_map, ghosts_dofs]))
+cells_tags_h.x.array[:] = cells_tags.values
 
 gdim = mesh.geometry.dim
 primal_element = element("Lagrange", cell_name, primal_degree)
@@ -156,6 +170,7 @@ L = ufl.inner(f_h, v) * dx((1, 2)) + (
 
 linear_form = dfx.fem.form(L)
 b = assemble_vector(linear_form)
+b.ghostUpdate(addv=PETSc.InsertMode.ADD, mode=PETSc.ScatterMode.REVERSE)
 
 """
 =========================
@@ -182,6 +197,7 @@ pc.getFactorMatrix().setMumpsIcntl(icntl=25, ival=0)
 solution_wh = dfx.fem.Function(mixed_space)
 ksp.solve(b, solution_wh.x.petsc_vec)
 ksp.destroy()
+solution_wh.x.scatter_forward()
 
 # Recover the primal solution from the mixed solution
 solution_uh, _, _ = solution_wh.split()
@@ -192,58 +208,63 @@ solution_uh.collapse()
  Save solution for visualization
 =================================
 """
-with XDMFFile(mesh.comm, os.path.join(output_dir, "solution.xdmf"), "w") as of:
-    of.write_mesh(mesh)
-    of.write_function(solution_uh)
 
 u_exact_h = dfx.fem.Function(primal_space)
 u_exact_h.interpolate(exact_solution)
 
-with XDMFFile(mesh.comm, os.path.join(output_dir, "exact_solution.xdmf"), "w") as of:
+solution_uh.name = "uh"
+u_exact_h.name = "exact"
+with XDMFFile(mesh.comm, os.path.join(output_dir, "solutions.xdmf"), "w") as of:
     of.write_mesh(mesh)
+    of.write_function(solution_uh)
     of.write_function(u_exact_h)
+    of.write_function(cells_tags_h)
 
 """
 =========================
  Local error computation
 =========================
 """
-ref_element = element("Lagrange", cell_name, primal_degree + 2)
-ref_space = dfx.fem.functionspace(mesh, ref_element)
+# ref_element = element("Lagrange", cell_name, primal_degree + 2)
+# ref_space = dfx.fem.functionspace(mesh, ref_element)
 
-ref_exact_solution = dfx.fem.Function(ref_space)
-ref_exact_solution.interpolate(exact_solution)
-ref_solution = dfx.fem.Function(ref_space)
-ref_solution.interpolate(solution_uh)
-ref_error = dfx.fem.Function(ref_space)
-ref_error.x.array[:] = ref_exact_solution.x.array[:] - ref_solution.x.array[:]
+# ref_exact_solution = dfx.fem.Function(ref_space)
+# ref_exact_solution.interpolate(exact_solution)
+# ref_solution = dfx.fem.Function(ref_space)
+# ref_solution.interpolate(solution_uh)
+# ref_error = dfx.fem.Function(ref_space)
+# ref_error.x.array[:] = ref_exact_solution.x.array[:] - ref_solution.x.array[:]
 
-dg0_element = element("DG", cell_name, 0)
-dg0_space = dfx.fem.functionspace(mesh, dg0_element)
-v0 = ufl.TestFunction(dg0_space)
+# dg0_element = element("DG", cell_name, 0)
+# dg0_space = dfx.fem.functionspace(mesh, dg0_element)
+# v0 = ufl.TestFunction(dg0_space)
 
-h1_error = ufl.inner(
-    ufl.inner(ufl.grad(ref_error), ufl.grad(ref_error))
-    + ufl.inner(ref_error, ref_error),
-    v0,
-) * dx((1, 2))
+# h1_error = ufl.inner(
+#     ufl.inner(ufl.grad(ref_error), ufl.grad(ref_error))
+#     + ufl.inner(ref_error, ref_error),
+#     v0,
+# ) * dx((1, 2))
 
-h1_error_form = dfx.fem.form(h1_error)
-h1_error_vec = assemble_vector(h1_error_form)
+# h1_error_form = dfx.fem.form(h1_error)
+# h1_error_vec = assemble_vector(h1_error_form)
 
-h1_error_fct = dfx.fem.Function(dg0_space)
-h1_error_fct.x.array[:] = h1_error_vec.array[:]
+# h1_error_fct = dfx.fem.Function(dg0_space)
+# if mesh.comm.rank == 0:
+#     h1_error_fct.x.array[:] = h1_error_vec.array[:]
 
-with XDMFFile(mesh.comm, os.path.join(output_dir, "h1_error.xdmf"), "w") as of:
-    of.write_mesh(mesh)
-    of.write_function(h1_error_fct)
+# h1_error_fct.x.array[:] = mesh.comm.bcast(h1_error_fct.x.array[:], root=0)
 
-h1_norm_exact_solution = (
-    ufl.inner(ufl.grad(ref_exact_solution), ufl.grad(ref_exact_solution))
-    + ufl.inner(ref_exact_solution, ref_exact_solution)
-) * dx((1, 2))
-h1_norm_exact_solution_form = dfx.fem.form(h1_norm_exact_solution)
-h1_norm_exact_solution = dfx.fem.assemble_scalar(h1_norm_exact_solution_form)
+# with XDMFFile(mesh.comm, os.path.join(output_dir, "h1_error.xdmf"), "w") as of:
+#     of.write_mesh(mesh)
+#     of.write_function(h1_error_fct)
 
-print("Relative H1 error:")
-print(np.sqrt(h1_error_fct.x.array.sum() / h1_norm_exact_solution))
+# h1_norm_exact_solution = (
+#     ufl.inner(ufl.grad(ref_exact_solution), ufl.grad(ref_exact_solution))
+#     + ufl.inner(ref_exact_solution, ref_exact_solution)
+# ) * dx((1, 2))
+# h1_norm_exact_solution_form = dfx.fem.form(h1_norm_exact_solution)
+# h1_norm_exact_solution = dfx.fem.assemble_scalar(h1_norm_exact_solution_form)
+
+# if mesh.comm.rank == 0:
+#     print("Relative H1 error:")
+#     print(np.sqrt(h1_error_fct.x.array.sum() / h1_norm_exact_solution))

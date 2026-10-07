@@ -8,10 +8,10 @@ from basix.ufl import element
 from dolfinx.io import XDMFFile
 from mpi4py import MPI
 
-from phifem.mesh_scripts import compute_tags_measures
+from phifem.mesh_scripts import _tag_facets
 
 """
-Data_n° = ("Data name", "mesh name", levelset object, "cells benchmark name", "facets benchmark name")
+Data_n° = ("Data name", "mesh name", levelset object, "facets benchmark name", "facets benchmark name")
 """
 
 
@@ -103,29 +103,31 @@ data_7 = (
 )
 testdata = [data_1, data_2, data_3, data_4, data_5, data_6, data_7]
 
-testspaces = [1, 2, 3]
+testdegrees = np.arange(1, 5).astype(np.int32)
+
+
+def tst_space(mesh, degree):
+    elment = element("Lagrange", mesh.topology.cell_name(), degree)
+    return dfx.fem.functionspace(mesh, elment)
+
 
 testdiscretize = [True, False]
 
 testsingle_layer_cut = [True, False]
 
-testboxmode = [True, False]
-
 parent_dir = os.path.dirname(__file__)
 
 
-@pytest.mark.parametrize("box_mode", testboxmode)
 @pytest.mark.parametrize("discretize", testdiscretize)
-@pytest.mark.parametrize("detection_degree", testspaces)
+@pytest.mark.parametrize("detection_degree", testdegrees)
 @pytest.mark.parametrize("single_layer_cut", testsingle_layer_cut)
 @pytest.mark.parametrize("data_name, mesh_name, generate_levelset", testdata)
-def test_compute_meshtags(
+def test_tag_facets(
     data_name,
     mesh_name,
     generate_levelset,
     detection_degree,
     discretize,
-    box_mode,
     single_layer_cut,
     save_as_benchmark=False,
     plot=False,
@@ -136,77 +138,63 @@ def test_compute_meshtags(
     with XDMFFile(MPI.COMM_WORLD, mesh_path, "r") as fi:
         mesh = fi.read_mesh()
 
+    space = tst_space(mesh, detection_degree)
+
     middle = "_"
     if discretize:
         middle += "discretize_"
 
-    if not box_mode:
-        middle += "submesh_"
-
     if single_layer_cut:
         middle += "single_layer_"
 
-    benchmark_cells_name = data_name + middle + "cells_tags"
-    benchmark_facets_name = data_name + middle + "facets_tags"
-    benchmark_levelset_name = data_name + middle + "levelset"
+    benchmark_facets_name = data_name + middle
 
     if discretize:
         levelset = generate_levelset(np)
-        cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
-        cg_space = dfx.fem.functionspace(mesh, cg_element)
-        levelset_test = dfx.fem.Function(cg_space)
+        levelset_test = dfx.fem.Function(space)
         levelset_test.interpolate(levelset)
     else:
         x_ufl = ufl.SpatialCoordinate(mesh)
         levelset_test = generate_levelset(ufl)(x_ufl)
 
-    if box_mode:
-        cells_tags, facets_tags = compute_tags_measures(
-            mesh,
-            levelset_test,
-            detection_degree,
-            box_mode=box_mode,
-            single_layer_cut=single_layer_cut,
-        )[:2]
-    else:
-        cells_tags, facets_tags, mesh = compute_tags_measures(
-            mesh,
-            levelset_test,
-            detection_degree,
-            box_mode=box_mode,
-            single_layer_cut=single_layer_cut,
-        )[:3]
+    # Must pass points of dimension == dimension of the element on which we wish to evaluate the expression.
+    reference_facet_points = np.array([[0.0], [1.0]], dtype=np.float64)
+    levelset_expression_facets = dfx.fem.Expression(
+        levelset_test, reference_facet_points
+    )
+    reference_cell_points = space.element.interpolation_points()
+    levelset_expression_cells = dfx.fem.Expression(levelset_test, reference_cell_points)
 
+    facets_tags = _tag_facets(
+        mesh,
+        levelset_expression_facets,
+        levelset_expression_cells=levelset_expression_cells,
+        single_layer_cut=single_layer_cut,
+    )
     # To save benchmark
     if save_as_benchmark:
-        cells_benchmark = np.vstack([cells_tags.indices, cells_tags.values])
-        np.savetxt(
-            os.path.join(parent_dir, "data", benchmark_cells_name + ".csv"),
-            cells_benchmark,
-            delimiter=" ",
-            newline="\n",
-        )
-
         facets_benchmark = np.vstack([facets_tags.indices, facets_tags.values])
         np.savetxt(
-            os.path.join(parent_dir, "data", benchmark_facets_name + ".csv"),
+            os.path.join(
+                parent_dir,
+                "data",
+                "tag_facets_data",
+                benchmark_facets_name + ".csv",
+            ),
             facets_benchmark,
             delimiter=" ",
             newline="\n",
         )
+
     else:
         try:
-            cells_benchmark = np.loadtxt(
-                os.path.join(parent_dir, "data", benchmark_cells_name + ".csv"),
-                delimiter=" ",
-            )
-        except FileNotFoundError:
-            print(
-                "{cells_benchmark_name} not found, have you generated the benchmark ?"
-            )
-        try:
             facets_benchmark = np.loadtxt(
-                os.path.join(parent_dir, "data", benchmark_facets_name + ".csv"),
+                os.path.join(
+                    parent_dir,
+                    "data",
+                    "tag_facets_data",
+                    benchmark_facets_name + ".csv",
+                ),
                 delimiter=" ",
             )
         except FileNotFoundError:
@@ -215,54 +203,64 @@ def test_compute_meshtags(
             )
 
     if plot:
-        save_levelset(
-            mesh,
-            os.path.join(parent_dir, benchmark_levelset_name + ".xdmf"),
-            generate_levelset(np),
-        )
-
-        save_tags(
-            mesh, os.path.join(parent_dir, benchmark_cells_name + ".xdmf"), cells_tags
-        )
-
-        mesh_edges = dfx.mesh.locate_entities(
+        plot_dir = os.path.join(parent_dir, "plot_test_tag_facets")
+        if not os.path.isdir(plot_dir):
+            os.mkdir(plot_dir)
+        fig = plt.figure()
+        ax = fig.subplots()
+        all_facets = dfx.mesh.locate_entities(
             mesh, 1, lambda x: np.ones_like(x[0]).astype(bool)
         )
-        wireframe = dfx.mesh.create_submesh(mesh, 1, mesh_edges)[0]
-
-        save_tags(
-            wireframe,
-            os.path.join(parent_dir, benchmark_facets_name + ".xdmf"),
-            facets_tags,
+        all_cells = dfx.mesh.locate_entities(
+            mesh, 2, lambda x: np.ones_like(x[0]).astype(bool)
         )
-
-    assert np.all(cells_tags.indices == cells_benchmark[0, :])
-    assert np.all(cells_tags.values == cells_benchmark[1, :])
+        plot_indices(mesh, 1, ax, all_facets)
+        plot_indices(mesh, 2, ax, all_cells)
+        ax.set_axis_off()
+        plt.savefig(
+            os.path.join(plot_dir, benchmark_facets_name + ".png"),
+            dpi=300,
+            bbox_inches="tight",
+        )
+        save_tags(
+            mesh, os.path.join(plot_dir, benchmark_facets_name + ".xdmf"), facets_tags
+        )
+        levelset = generate_levelset(np)
+        cg_element = element("Lagrange", mesh.topology.cell_name(), detection_degree)
+        space = dfx.fem.functionspace(mesh, cg_element)
+        levelset_test = dfx.fem.Function(space)
+        levelset_test.interpolate(levelset)
+        with XDMFFile(
+            mesh.comm,
+            os.path.join(parent_dir, benchmark_facets_name + "levelset" + ".xdmf"),
+            "w",
+        ) as of:
+            of.write_mesh(mesh)
+            of.write_function(levelset_test)
 
     assert np.all(facets_tags.indices == facets_benchmark[0, :])
     assert np.all(facets_tags.values == facets_benchmark[1, :])
 
 
 if __name__ == "__main__":
-    from utils_test import save_levelset, save_tags
+    import matplotlib.pyplot as plt
+    from pydouillaj.pydouille import plot_indices
+    from utils_test import save_tags
 
     testdata_main = testdata
-    testdegrees_main = testspaces
+    testdegrees_main = testdegrees
     testdiscretize = [False, True]
-    testboxmode = [False, True]
     testsingle_layer_cut = [False, True]
     for test_data in testdata_main:
         print(f"{test_data[0]}, {test_data[1]}")
         for test_degree in testdegrees_main:
             for test_discretize in testdiscretize:
                 for single_layer_cut in testsingle_layer_cut:
-                    for test_box_mode in testboxmode:
-                        test_compute_meshtags(
-                            *test_data,
-                            test_degree,
-                            test_discretize,
-                            test_box_mode,
-                            single_layer_cut=single_layer_cut,
-                            save_as_benchmark=True,
-                            plot=True,
-                        )
+                    test_tag_facets(
+                        *test_data,
+                        test_degree,
+                        test_discretize,
+                        single_layer_cut,
+                        save_as_benchmark=True,
+                        plot=False,
+                    )

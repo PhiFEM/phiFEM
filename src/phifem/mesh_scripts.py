@@ -1,16 +1,18 @@
+from __future__ import annotations
+
 import os
+import typing
 import warnings
 from collections.abc import Callable
 from os import PathLike
-from typing import Any, Tuple
 
 import dolfinx as dfx
 import numpy as np
 import numpy.typing as npt
 import ufl  # type: ignore
-from basix.ufl import element
+from basix.ufl import _ElementBase, element
 from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
-from dolfinx.fem import Function
+from dolfinx.fem import Expression, Function, FunctionSpace
 from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
 from ufl import inner
@@ -20,9 +22,123 @@ PathStr = PathLike[str] | str
 NDArrayFunction = Callable[[npt.NDArray[np.float64]], npt.NDArray[np.float64]]
 
 debug_mode = False
-if "MODE" in os.environ:
-    if os.environ["MODE"] == "debug":
-        debug_mode = True
+if "MODE" in os.environ and os.environ["MODE"] == "debug":
+    debug_mode = True
+
+
+# Borrowed from: https://github.com/scientificcomputing/scifem/blob/main/src/scifem/mesh.py#L173
+def _reverse_mark_entities(
+    entity_map: dfx.common.IndexMap, entities: npt.NDArray[np.int32]
+) -> npt.NDArray[np.int32]:
+    """Communicate entities marked on a single process to all processes that ghosts or owns this entity.
+
+    Args:
+        entity_map: Index-map describing entity ownership
+        entities: Local indices of entities to communicate
+    Returns:
+        Local indices marked on any process sharing this entity
+    """
+    comm_vec = dfx.la.vector(entity_map, dtype=np.int32)
+    comm_vec.array[:] = 0
+    comm_vec.array[entities] = 1
+    comm_vec.scatter_reverse(dfx.la.InsertMode.add)
+    comm_vec.scatter_forward()
+    return np.flatnonzero(comm_vec.array).astype(np.int32)
+
+
+# Borrowed from: https://github.com/scientificcomputing/scifem/blob/main/src/scifem/mesh.py#L57
+def _get_entity_map(
+    entity_map: dfx.mesh.EntityMap | npt.NDArray[np.int32],
+) -> npt.NDArray[np.int32]:
+    """Get an entity map from the sub-topology to the topology.
+
+    This function handles both the deprecated construction of an entity map as a numpy array and the newer `EntityMap` class from `dolfinx.mesh`.
+
+    Args:
+        entity_map: An `EntityMap` object or a numpy array representing the mapping.
+    Returns:
+        Mapped indices of entities.
+    """
+    try:
+        sub_top = entity_map.sub_topology
+        assert isinstance(sub_top, dfx.mesh.Topology)
+        sub_map = sub_top.index_map(entity_map.dim)
+        indices = np.arange(sub_map.size_local + sub_map.num_ghosts, dtype=np.int32)
+        return entity_map.sub_topology_to_topology(indices, inverse=False)
+    except AttributeError:
+        return entity_map
+
+
+# Borrowed from: https://github.com/scientificcomputing/scifem/blob/main/src/scifem/mesh.py#L287
+def _compute_subdomain_exterior_facets(
+    mesh: Mesh, ct: MeshTags, markers: typing.Sequence[int]
+) -> npt.NDArray[np.int32]:
+    """Find the the facets that are considered to be on the "exterior" boundary of a subdomain.
+
+    The subdomain is defined as the collection of cells in ``ct`` that is marked with any of the
+    ``markers``. The exterior boundary of the subdomain is defined as the collection of facets
+    that are only connected to a single cell within the subdomain.
+
+    Note:
+        Ghosted facets are included in the resulting array.
+
+    Args:
+        mesh: Mesh to extract subdomains from
+        ct: MeshTags object marking subdomains
+        markers: The tags making up the "new" mesh
+    Returns:
+        The exterior facets
+    """
+    # Create submesh to find the exterior facet of subdomain
+    # Accumulate all entities, including ghosts, for the specfic set of tagged entities
+    edim = ct.dim
+    mesh.topology.create_connectivity(edim, mesh.topology.dim)
+    tags_as_arr = np.asarray(markers, dtype=ct.values.dtype)
+    all_tagged_indices = np.isin(ct.values, tags_as_arr)
+    entities = ct.indices[all_tagged_indices]
+    sub_mesh, cell_map = dfx.mesh.create_submesh(
+        mesh,
+        edim,
+        entities,
+    )[:2]
+
+    new_et = _transfer_tags(ct, sub_mesh, cell_map, mesh)
+    new_et.name = ct.name
+
+    sub_mesh.topology.create_connectivity(
+        sub_mesh.topology.dim - 1, sub_mesh.topology.dim
+    )
+    sub_facets = dfx.mesh.exterior_facet_indices(sub_mesh.topology)
+
+    # Map exterior facet to (submesh_cell, local_facet_index) tuples
+    try:
+        integration_entities = dfx.fem.compute_integration_domains(
+            dfx.fem.IntegralType.exterior_facet, sub_mesh.topology, sub_facets
+        )
+    except TypeError:
+        integration_entities = dfx.fem.compute_integration_domains(
+            dfx.fem.IntegralType.exterior_facet,
+            sub_mesh.topology,
+            sub_facets,
+            sub_mesh.topology.dim - 1,
+        )
+    integration_entities = integration_entities.reshape(-1, 2)
+    submap_array = _get_entity_map(cell_map)
+    integration_entities[:, 0] = submap_array[integration_entities[:, 0]]
+
+    # Get cell to facet connectivity (parent mesh)
+    mesh.topology.create_connectivity(mesh.topology.dim, mesh.topology.dim - 1)
+    num_facets_per_cell = dfx.cpp.mesh.cell_num_entities(
+        mesh.topology.cell_type, mesh.topology.dim - 1
+    )
+    c_to_f = mesh.topology.connectivity(
+        mesh.topology.dim, mesh.topology.dim - 1
+    ).array.reshape(-1, num_facets_per_cell)
+    # Map (parent_cell, local_facet_index) to facet index (local to process)
+    parent_facets = c_to_f[integration_entities[:, 0], integration_entities[:, 1]]
+    facet_map = mesh.topology.index_map(mesh.topology.dim - 1)
+    # Accumulate ghost facets
+    return _reverse_mark_entities(facet_map, parent_facets)
 
 
 def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
@@ -217,7 +333,7 @@ def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
 def _transfer_tags(
     source_mesh_tags: MeshTags,
     dest_mesh: Mesh,
-    cmap: npt.NDArray[Any],
+    cmap: npt.NDArray,
     source_mesh: Mesh = None,
 ) -> MeshTags:
     """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
@@ -256,7 +372,7 @@ def _transfer_tags(
         dest_c2f_map = dest_c2f_map.reshape(
             -1,
         )
-        unique_indices, sorted_indices = np.unique(dest_c2f_map, return_index=True)
+        sorted_indices = np.unique(dest_c2f_map, return_index=True)[1]
         emap = source_c2f_dest_map[sorted_indices]
     else:
         raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
@@ -283,8 +399,7 @@ def _transfer_tags(
 
 def _tag_cells(
     mesh: Mesh,
-    discrete_levelset: Function,
-    detection_degree: int,
+    levelset_expression: Expression,
     single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
@@ -301,8 +416,21 @@ def _tag_cells(
     Returns:
         The cells tags as a MeshTags object.
     """
+    cdim = mesh.topology.dim
+    all_cells = dfx.mesh.locate_entities(
+        mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    levelset_eval = levelset_expression.eval(mesh, all_cells)
+
+    exterior = np.min(levelset_eval, axis=1) > 0.0
+    interior = np.max(levelset_eval, axis=1) < 0.0
+    cut = np.logical_not(np.logical_or(exterior, interior))
+
+    exterior_indices = np.where(exterior)[0]
+    interior_indices = np.where(interior)[0]
+    cut_indices = np.where(cut)[0]
+
     if single_layer_cut:
-        cdim = mesh.topology.dim
         vdim = 0
         # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
         mesh.topology.create_connectivity(cdim, vdim)
@@ -314,39 +442,6 @@ def _tag_cells(
         v2c_connect = mesh.topology.connectivity(vdim, cdim)
         v2c_map, max_offset = _reshape_map(v2c_connect)
 
-    # Create the custom quadrature rule.
-    # The quadrature points are evenly spaced on the boundary of the reference cell.
-    # The weights are 1.
-    cell_type = mesh.topology.cell_type.name
-
-    if cell_type == "triangle":
-        points = _reference_triangle_boundary_points(detection_degree)
-    elif cell_type == "quadrilateral":
-        points = _reference_square_boundary_points(detection_degree)
-    else:
-        raise NotImplementedError(
-            "Mesh tags computation does not support other cell types than 'triangle' or 'quadrilateral'"
-        )
-    weights = np.ones_like(points[:, 0])
-
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
-
-    detection_measure = ufl.Measure("dx", domain=mesh, metadata=detection_quadrature)
-
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
-    )
-    cut_indices = np.where(
-        np.logical_and(detection_vector > -1.0, detection_vector < 1.0)
-    )[0]
-    exterior_indices = np.where(detection_vector == 1.0)[0]
-    interior_indices = np.where(detection_vector == -1.0)[0]
-
-    if single_layer_cut:
         neighbor_cells = np.reshape(
             v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
         )
@@ -382,7 +477,6 @@ def _tag_cells(
     cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
     markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(np.int32)
     sorted_indices = np.argsort(indices)
-
     cells_tags = dfx.mesh.meshtags(
         mesh, mesh.topology.dim, indices[sorted_indices], markers[sorted_indices]
     )
@@ -390,11 +484,31 @@ def _tag_cells(
     return cells_tags
 
 
+def _cells_facets_pairs(f2c_map, c2f_map, facets):
+    """Get integration entities cells-facets pairs for the corresponding facets indices.
+
+    Args:
+        f2c_map: the facet to cell connectivity mapping.
+        c2f_map: the cell to facet connectivity mapping.
+        facets: the facets indices to get the pairs from.
+
+    Returns: the local indices of facets in their corresponding cells ordered as [cell_1 local_facet cell_2 local_facet cell_3 local_facet ...]
+    """
+    connected_cells = f2c_map[facets][:, 0]
+    facets_connected_cells = c2f_map[connected_cells]
+    facets_tiled = np.tile(facets[..., None], facets_connected_cells.shape[1])
+    mask = facets_tiled == facets_connected_cells
+    local_indices = np.where(mask)[1]
+    pairs = np.ravel([connected_cells.T, local_indices.T], "F")
+    return pairs
+
+
 def _tag_facets(
     mesh: Mesh,
-    cells_tags: MeshTags,
-    discrete_levelset: Function,
-    detection_degree: int,
+    levelset_expression_facets: Expression,
+    cells_tags: MeshTags | None = None,
+    levelset_expression_cells: Expression | None = None,
+    single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -413,104 +527,83 @@ def _tag_facets(
     Returns:
         The facets tags as a MeshTags object.
     """
+    if cells_tags is None:
+        assert levelset_expression_cells is not None, (
+            "You must either pass cells_tags or a levelset expression over the cells of the domain."
+        )
+        cells_tags = _tag_cells(
+            mesh, levelset_expression_cells, single_layer_cut=single_layer_cut
+        )
+
     cdim = mesh.topology.dim
     fdim = cdim - 1
-    # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
-    mesh.topology.create_connectivity(cdim, fdim)
+    mesh.topology.create_connectivity(fdim, cdim)
+    f2c_connect = mesh.topology.connectivity(fdim, cdim)
     c2f_connect = mesh.topology.connectivity(cdim, fdim)
+    f2c_map = _reshape_map(f2c_connect)[0]
     num_facets_per_cell = len(c2f_connect.links(0))
     c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
 
-    # Get tagged cells
-    interior_cells = cells_tags.find(1)
-    cut_cells = cells_tags.find(2)
-    exterior_cells = cells_tags.find(3)
+    marker = lambda x: np.ones_like(x[0]).astype(bool)
+    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
+    boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, marker)
+    interior_facets = np.setdiff1d(all_facets, boundary_facets)
 
-    # Check which background mesh boundary facets are cut by the interface
-    background_mesh_boundary_facets = dfx.mesh.locate_entities_boundary(
-        mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
-    )
+    cell_facet_pairs = _cells_facets_pairs(f2c_map, c2f_map, interior_facets)
+    levelset_eval_int = levelset_expression_facets.eval(mesh, cell_facet_pairs)
 
-    points = _reference_segment_points(detection_degree)
-    weights = np.ones_like(points[:, 0])
+    exterior_int = np.min(levelset_eval_int, axis=1) > 0.0
+    interior_int = np.max(levelset_eval_int, axis=1) < 0.0
+    direct_int = np.isclose(np.sum(np.abs(levelset_eval_int), axis=1), 0.0)
 
-    detection_quadrature = {
-        "quadrature_rule": "custom",
-        "quadrature_points": points,
-        "quadrature_weights": weights,
-    }
+    connected_cells = f2c_map[boundary_facets][:, 0]
 
-    detection_measure = ufl.Measure("ds", domain=mesh, metadata=detection_quadrature)
+    cell_facet_pairs = _compute_integration_entities(
+        mesh, connected_cells, boundary_facets, 0
+    )[0][1]
+    levelset_eval_bdy = levelset_expression_facets.eval(mesh, cell_facet_pairs)
+    exterior_bdy = np.min(levelset_eval_bdy, axis=1) > 0.0
+    interior_bdy = np.max(levelset_eval_bdy, axis=1) < 0.0
+    direct_bdy = np.isclose(np.sum(np.abs(levelset_eval_bdy), axis=1), 0.0)
 
-    detection_vector = _compute_detection_vector(
-        mesh, discrete_levelset, detection_measure
-    )
-    mask_cut_indices_cells = np.logical_and(
-        detection_vector > -1.0, detection_vector < 1.0
-    )
-    cut_indices_cells = np.where(mask_cut_indices_cells)[0]
-    comp_indices_cells = np.where(np.logical_not(mask_cut_indices_cells))[0]
+    facets_indices = np.hstack([interior_facets, boundary_facets])
+    exterior = np.hstack([exterior_int, exterior_bdy])
+    interior = np.hstack([interior_int, interior_bdy])
+    direct = np.hstack([direct_int, direct_bdy])
+    exterior_indices = facets_indices[exterior]
+    interior_indices = facets_indices[interior]
+    direct_indices = facets_indices[direct]
 
-    cut_boundary_facets = np.intersect1d(
-        c2f_map[cut_indices_cells], background_mesh_boundary_facets
-    )
-    uncut_boundary_facets = np.intersect1d(
-        c2f_map[comp_indices_cells], background_mesh_boundary_facets
-    )
-    uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[exterior_cells])
-    uncut_boundary_facets = np.setdiff1d(uncut_boundary_facets, c2f_map[interior_cells])
+    cut = np.logical_not(np.logical_or(exterior, interior))
+    cut_indices = facets_indices[cut]
+    cut_indices = np.setdiff1d(cut_indices, direct_indices)
 
-    # Facets shared by an interior cell and a cut cell
-    interior_boundary_facets = np.intersect1d(
-        c2f_map[interior_cells], c2f_map[cut_cells]
-    )
+    # Compute the list of facets on the boundary of the union of cut cells
+    boundary_cut_indices = _compute_subdomain_exterior_facets(mesh, cells_tags, [2])
+    boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
+    boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
+    interior_indices = np.setdiff1d(interior_indices, boundary_exterior_indices)
 
-    # If there is no exterior_cells, the boundary facets are just the facets on the boundary of Ω_h
-    if len(exterior_cells) == 0:
-        boundary_facets = background_mesh_boundary_facets
-    else:
-        # Facets shared by an exterior cell and a cut cell
-        boundary_facets = np.intersect1d(c2f_map[exterior_cells], c2f_map[cut_cells])
-        boundary_facets = np.union1d(boundary_facets, uncut_boundary_facets)
-
-    direct_interface_facets = np.intersect1d(
-        c2f_map[exterior_cells], c2f_map[interior_cells]
-    )
-    # Cut facets F_h^Γ
-    facets_to_remove = np.union1d(boundary_facets, interior_boundary_facets)
-    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    facets_to_remove = np.union1d(facets_to_remove, uncut_boundary_facets)
-    cut_facets = np.setdiff1d(c2f_map[cut_cells], facets_to_remove)
-    cut_facets = np.union1d(cut_facets, cut_boundary_facets)
-
-    # Interior facets
-    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
-    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    interior_facets = np.setdiff1d(c2f_map[interior_cells], facets_to_remove)
-
-    # Exterior facets
-    facets_to_remove = np.union1d(interior_boundary_facets, boundary_facets)
-    facets_to_remove = np.union1d(facets_to_remove, direct_interface_facets)
-    exterior_facets = np.setdiff1d(c2f_map[exterior_cells], facets_to_remove)
-
-    boundary_facets = np.setdiff1d(boundary_facets, cut_facets)
+    boundary_interior_indices = np.intersect1d(boundary_cut_indices, exterior_indices)
+    boundary_interior_indices = np.setdiff1d(boundary_interior_indices, direct_indices)
+    exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
 
     # Only exterior_facets might be empty
     if debug_mode:
-        if len(interior_facets) == 0:
+        if len(interior_indices) == 0:
             raise ValueError("No interior facets (1)!")
-        if len(cut_facets) == 0:
+        if len(cut_indices) == 0:
             print("WARNING: no cut facet computed in the partition.")
-        if len(boundary_facets) == 0:
+        if len(boundary_interior_indices) == 0:
             raise ValueError("No boundary facets (4)!")
 
         # The lists must not intersect
         names = ["interior facets (1)", "cut facets (2)", "boundary facets (4)"]
         for i, facets_list_1 in enumerate(
-            [interior_facets, cut_facets, boundary_facets]
+            [interior_indices, cut_indices, boundary_interior_indices]
         ):
             for j, facets_list_2 in enumerate(
-                [interior_facets, cut_facets, boundary_facets]
+                [interior_indices, cut_indices, boundary_interior_indices]
             ):
                 if i != j and len(np.intersect1d(facets_list_1, facets_list_2)) > 0:
                     raise ValueError(
@@ -519,26 +612,25 @@ def _tag_facets(
                         + names[j]
                         + " have a non-empty intersection!"
                     )
-
     # Create the meshtags from the indices.
     indices = np.hstack(
         [
-            exterior_facets,
-            interior_facets,
-            interior_boundary_facets,
-            cut_facets,
-            boundary_facets,
-            direct_interface_facets,
+            exterior_indices,
+            interior_indices,
+            boundary_exterior_indices,
+            cut_indices,
+            boundary_interior_indices,
+            direct_indices,
         ]
     ).astype(np.int32)
-    interior_marker = np.full_like(interior_facets, 1).astype(np.int32)
-    cut_marker = np.full_like(cut_facets, 2).astype(np.int32)
-    interior_boundary_marker = np.full_like(interior_boundary_facets, 3).astype(
+    interior_marker = np.full_like(interior_indices, 1).astype(np.int32)
+    cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
+    interior_boundary_marker = np.full_like(boundary_exterior_indices, 3).astype(
         np.int32
     )
-    boundary_marker = np.full_like(boundary_facets, 4).astype(np.int32)
-    exterior_marker = np.full_like(exterior_facets, 5).astype(np.int32)
-    direct_interface_marker = np.full_like(direct_interface_facets, 6).astype(np.int32)
+    boundary_marker = np.full_like(boundary_interior_indices, 4).astype(np.int32)
+    exterior_marker = np.full_like(exterior_indices, 5).astype(np.int32)
+    direct_interface_marker = np.full_like(direct_indices, 6).astype(np.int32)
     markers = np.hstack(
         [
             exterior_marker,
@@ -564,18 +656,74 @@ def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
     overwritten_indices, ind = np.unique(stack_indices, return_index=True)
     overwritten_values = stack_values[ind]
 
-    overwritten_tags = dfx.mesh.meshtags(mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values)
+    overwritten_tags = dfx.mesh.meshtags(
+        mesh, tags_to_overwrite.dim, overwritten_indices, overwritten_values
+    )
     return overwritten_tags
+
+
+def _compute_codim_interpolation_points(
+    space: dfx.fem.FunctionSpace,
+) -> np.ndarray[np.float64]:
+    """Compute the same FunctionSpace but defined over a submesh of codim 1.
+
+    Args:
+        space: the original space.
+
+    Return: a new space defined on a mesh of codim 1.
+    """
+    family_name = space.ufl_element().basix_element.family.name
+    degree = space.ufl_element().basix_element.degree
+    tdim = space.mesh.topology.dim
+    codim_mesh = dfx.mesh.create_submesh(space.mesh, tdim - 1, np.array([0.0]))[0]
+    codim_cell_name = codim_mesh.topology.cell_name()
+    new_elmt = element(family_name, codim_cell_name, degree)
+    new_space = dfx.fem.functionspace(codim_mesh, new_elmt)
+    return new_space.element.interpolation_points()
+
+
+def _levelset_expression(
+    mesh: dfx.mesh.Mesh,
+    levelset: Function | Callable,
+    interpolation_points: np.NDarray[np.float64],
+) -> Expression:
+    """Sanitize the levelset input by turning it into an Expression.
+
+    Args:
+        levelset: the levelset function.
+        detection_space: the detection space.
+
+    Return: the levelset as an Expression object.
+    """
+
+    # Sanitize levelset input
+    try:
+        # Test if levelset is a dolfinx.fem.Function
+        _ = levelset.function_space
+        levelset_expression = dfx.fem.Expression(
+            levelset, interpolation_points, comm=mesh.comm
+        )
+    except AttributeError:
+        try:
+            x = ufl.SpatialCoordinate(mesh)
+            levelset_expression = dfx.fem.Expression(
+                levelset(x), interpolation_points, comm=mesh.comm
+            )
+        except TypeError:
+            print(
+                "Invalid levelset type: must be either a dolfinx.fem.Function or a UFL based Callable."
+            )
+    return levelset_expression
 
 
 def compute_tags_measures(
     mesh: Mesh,
-    discrete_levelset: Function,
-    detection_degree: int,
+    levelset: Function | Callable,
+    detection_space: FunctionSpace,
     box_mode: bool = False,
     single_layer_cut: bool = False,
-    overwrite_tags: dict[str,MeshTags] | dict = {},
-) -> Tuple[
+    overwrite_tags: dict[str, MeshTags] | None = None,
+) -> tuple[
     MeshTags,
     MeshTags,
     Mesh | None,
@@ -598,21 +746,39 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
-    cells_tags = _tag_cells(
-        mesh, discrete_levelset, detection_degree, single_layer_cut=single_layer_cut
-    )
-    facets_tags = _tag_facets(mesh, cells_tags, discrete_levelset, detection_degree)
+    interpolation_points = detection_space.element.interpolation_points()
+    levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
 
-    if "cells" in overwrite_tags.keys():
-        ow_cells_tags = overwrite_tags["cells"]
-        if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
-            raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
-        cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
-    if "facets" in overwrite_tags.keys():
-        ow_facets_tags = overwrite_tags["facets"]
-        if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
-            raise ValueError("Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101.")
-        facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
+    cells_tags = _tag_cells(
+        mesh, levelset_expression, single_layer_cut=single_layer_cut
+    )
+
+    codim_interpolation_points = _compute_codim_interpolation_points(detection_space)
+    levelset_expression_facets = _levelset_expression(
+        mesh, levelset, codim_interpolation_points
+    )
+
+    facets_tags = _tag_facets(
+        mesh,
+        levelset_expression_facets,
+        cells_tags,
+        levelset_expression,
+        single_layer_cut=single_layer_cut,
+    )
+
+    if overwrite_tags is not None:
+        if "cells" in overwrite_tags:
+            ow_cells_tags = overwrite_tags["cells"]
+            if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
+                raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
+            cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
+        if "facets" in overwrite_tags:
+            ow_facets_tags = overwrite_tags["facets"]
+            if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
+                raise ValueError(
+                    "Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101."
+                )
+            facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
 
     if box_mode:
         submesh = None
