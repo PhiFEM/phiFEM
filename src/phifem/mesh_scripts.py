@@ -397,10 +397,50 @@ def _transfer_tags(
     return dest_entities_tags
 
 
+def _remove_isolated_cells(
+    mesh: dfx.mesh.Mesh,
+    exterior_indices: np.ndarray[np.int32],
+    cut_indices: np.ndarray[np.int32],
+    interior_indices: np.ndarray[np.int32],
+):
+    cdim = mesh.topology.dim
+    vdim = 0
+    # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
+    mesh.topology.create_connectivity(cdim, vdim)
+    c2v_connect = mesh.topology.connectivity(cdim, vdim)
+    num_vertices_per_cell = len(c2v_connect.links(0))
+    c2v_map = np.reshape(c2v_connect.array, (-1, num_vertices_per_cell))
+
+    mesh.topology.create_connectivity(vdim, cdim)
+    v2c_connect = mesh.topology.connectivity(vdim, cdim)
+    v2c_map, max_offset = _reshape_map(v2c_connect)
+
+    neighbor_cells = np.reshape(
+        v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
+    )
+    mask_no_interior_connected = ~np.any(
+        np.isin(neighbor_cells, interior_indices), axis=1
+    )
+    mask_no_exterior_connected = ~np.any(
+        np.isin(neighbor_cells, exterior_indices), axis=1
+    )
+
+    cut_disconnected_interior = cut_indices[mask_no_interior_connected]
+    cut_disconnected_exterior = cut_indices[mask_no_exterior_connected]
+
+    cut_indices = np.setdiff1d(
+        cut_indices, np.union1d(cut_disconnected_interior, cut_disconnected_exterior)
+    )
+    exterior_indices = np.union1d(exterior_indices, cut_disconnected_interior)
+    interior_indices = np.union1d(interior_indices, cut_disconnected_exterior)
+
+    return exterior_indices, cut_indices, interior_indices
+
+
 def _tag_cells(
     mesh: Mesh,
     levelset_expression: Expression,
-    single_layer_cut: bool = False,
+    single_layer_cut: bool,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
         Strictly inside cell  => tag 1
@@ -431,26 +471,9 @@ def _tag_cells(
     cut_indices = np.where(cut)[0]
 
     if single_layer_cut:
-        vdim = 0
-        # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
-        mesh.topology.create_connectivity(cdim, vdim)
-        c2v_connect = mesh.topology.connectivity(cdim, vdim)
-        num_vertices_per_cell = len(c2v_connect.links(0))
-        c2v_map = np.reshape(c2v_connect.array, (-1, num_vertices_per_cell))
-
-        mesh.topology.create_connectivity(vdim, cdim)
-        v2c_connect = mesh.topology.connectivity(vdim, cdim)
-        v2c_map, max_offset = _reshape_map(v2c_connect)
-
-        neighbor_cells = np.reshape(
-            v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
+        exterior_indices, cut_indices, interior_indices = _remove_isolated_cells(
+            mesh, exterior_indices, cut_indices, interior_indices
         )
-        mask_connected_cut_cells = np.any(
-            np.isin(neighbor_cells, interior_indices), axis=1
-        )
-        isolated_cut_cells = cut_indices[~mask_connected_cut_cells]
-        cut_indices = np.setdiff1d(cut_indices, isolated_cut_cells)
-        exterior_indices = np.union1d(exterior_indices, isolated_cut_cells)
 
     if debug_mode:
         if len(interior_indices) == 0:
@@ -480,7 +503,6 @@ def _tag_cells(
     cells_tags = dfx.mesh.meshtags(
         mesh, mesh.topology.dim, indices[sorted_indices], markers[sorted_indices]
     )
-
     return cells_tags
 
 
@@ -506,9 +528,9 @@ def _cells_facets_pairs(f2c_map, c2f_map, facets):
 def _tag_facets(
     mesh: Mesh,
     levelset_expression_facets: Expression,
+    single_layer_cut: bool,
     cells_tags: MeshTags | None = None,
     levelset_expression_cells: Expression | None = None,
-    single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -531,9 +553,7 @@ def _tag_facets(
         assert levelset_expression_cells is not None, (
             "You must either pass cells_tags or a levelset expression over the cells of the domain."
         )
-        cells_tags = _tag_cells(
-            mesh, levelset_expression_cells, single_layer_cut=single_layer_cut
-        )
+        cells_tags = _tag_cells(mesh, levelset_expression_cells, single_layer_cut)
 
     cdim = mesh.topology.dim
     fdim = cdim - 1
@@ -579,7 +599,10 @@ def _tag_facets(
     cut_indices = np.setdiff1d(cut_indices, direct_indices)
 
     # Compute the list of facets on the boundary of the union of cut cells
-    boundary_cut_indices = _compute_subdomain_exterior_facets(mesh, cells_tags, [2])
+    if len(cells_tags.find(2)) > 0:
+        boundary_cut_indices = _compute_subdomain_exterior_facets(mesh, cells_tags, [2])
+    else:
+        boundary_cut_indices = []
     boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
     boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
     interior_indices = np.setdiff1d(interior_indices, boundary_exterior_indices)
@@ -749,9 +772,7 @@ def compute_tags_measures(
     interpolation_points = detection_space.element.interpolation_points()
     levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
 
-    cells_tags = _tag_cells(
-        mesh, levelset_expression, single_layer_cut=single_layer_cut
-    )
+    cells_tags = _tag_cells(mesh, levelset_expression, single_layer_cut)
 
     codim_interpolation_points = _compute_codim_interpolation_points(detection_space)
     levelset_expression_facets = _levelset_expression(
@@ -761,9 +782,9 @@ def compute_tags_measures(
     facets_tags = _tag_facets(
         mesh,
         levelset_expression_facets,
-        cells_tags,
-        levelset_expression,
-        single_layer_cut=single_layer_cut,
+        single_layer_cut,
+        cells_tags=cells_tags,
+        levelset_expression_cells=levelset_expression,
     )
 
     if overwrite_tags is not None:
