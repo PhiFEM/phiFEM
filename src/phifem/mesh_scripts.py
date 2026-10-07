@@ -440,7 +440,7 @@ def _remove_isolated_cells(
 def _tag_cells(
     mesh: Mesh,
     levelset_expression: Expression,
-    single_layer_cut: bool = False,
+    single_layer_cut: bool,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
         Strictly inside cell  => tag 1
@@ -528,9 +528,9 @@ def _cells_facets_pairs(f2c_map, c2f_map, facets):
 def _tag_facets(
     mesh: Mesh,
     levelset_expression_facets: Expression,
+    single_layer_cut: bool,
     cells_tags: MeshTags | None = None,
     levelset_expression_cells: Expression | None = None,
-    single_layer_cut: bool = False,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -553,9 +553,7 @@ def _tag_facets(
         assert levelset_expression_cells is not None, (
             "You must either pass cells_tags or a levelset expression over the cells of the domain."
         )
-        cells_tags = _tag_cells(
-            mesh, levelset_expression_cells, single_layer_cut=single_layer_cut
-        )
+        cells_tags = _tag_cells(mesh, levelset_expression_cells, single_layer_cut)
 
     cdim = mesh.topology.dim
     fdim = cdim - 1
@@ -771,9 +769,7 @@ def compute_tags_measures(
     interpolation_points = detection_space.element.interpolation_points()
     levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
 
-    cells_tags = _tag_cells(
-        mesh, levelset_expression, single_layer_cut=single_layer_cut
-    )
+    cells_tags = _tag_cells(mesh, levelset_expression, single_layer_cut)
 
     codim_interpolation_points = _compute_codim_interpolation_points(detection_space)
     levelset_expression_facets = _levelset_expression(
@@ -783,9 +779,9 @@ def compute_tags_measures(
     facets_tags = _tag_facets(
         mesh,
         levelset_expression_facets,
-        cells_tags,
-        levelset_expression,
-        single_layer_cut=single_layer_cut,
+        single_layer_cut,
+        cells_tags=cells_tags,
+        levelset_expression_cells=levelset_expression,
     )
 
     if overwrite_tags is not None:
