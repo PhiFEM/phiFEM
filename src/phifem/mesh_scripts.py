@@ -599,7 +599,10 @@ def _tag_facets(
     cut_indices = np.setdiff1d(cut_indices, direct_indices)
 
     # Compute the list of facets on the boundary of the union of cut cells
-    boundary_cut_indices = _compute_subdomain_exterior_facets(mesh, cells_tags, [2])
+    if len(cells_tags.find(2)) > 0:
+        boundary_cut_indices = _compute_subdomain_exterior_facets(mesh, cells_tags, [2])
+    else:
+        boundary_cut_indices = []
     boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
     boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
     interior_indices = np.setdiff1d(interior_indices, boundary_exterior_indices)
