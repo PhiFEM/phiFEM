@@ -397,6 +397,46 @@ def _transfer_tags(
     return dest_entities_tags
 
 
+def _remove_isolated_cells(
+    mesh: dfx.mesh.Mesh,
+    exterior_indices: np.ndarray[np.int32],
+    cut_indices: np.ndarray[np.int32],
+    interior_indices: np.ndarray[np.int32],
+):
+    cdim = mesh.topology.dim
+    vdim = 0
+    # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
+    mesh.topology.create_connectivity(cdim, vdim)
+    c2v_connect = mesh.topology.connectivity(cdim, vdim)
+    num_vertices_per_cell = len(c2v_connect.links(0))
+    c2v_map = np.reshape(c2v_connect.array, (-1, num_vertices_per_cell))
+
+    mesh.topology.create_connectivity(vdim, cdim)
+    v2c_connect = mesh.topology.connectivity(vdim, cdim)
+    v2c_map, max_offset = _reshape_map(v2c_connect)
+
+    neighbor_cells = np.reshape(
+        v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
+    )
+    mask_no_interior_connected = ~np.any(
+        np.isin(neighbor_cells, interior_indices), axis=1
+    )
+    mask_no_exterior_connected = ~np.any(
+        np.isin(neighbor_cells, exterior_indices), axis=1
+    )
+
+    cut_disconnected_interior = cut_indices[mask_no_interior_connected]
+    cut_disconnected_exterior = cut_indices[mask_no_exterior_connected]
+
+    cut_indices = np.setdiff1d(
+        cut_indices, np.union1d(cut_disconnected_interior, cut_disconnected_exterior)
+    )
+    exterior_indices = np.union1d(exterior_indices, cut_disconnected_interior)
+    interior_indices = np.union1d(interior_indices, cut_disconnected_exterior)
+
+    return exterior_indices, cut_indices, interior_indices
+
+
 def _tag_cells(
     mesh: Mesh,
     levelset_expression: Expression,
@@ -431,26 +471,9 @@ def _tag_cells(
     cut_indices = np.where(cut)[0]
 
     if single_layer_cut:
-        vdim = 0
-        # Create the cell to facet connectivity and reshape it into an array s.t. c2f_map[cell_index] = [facets of this cell index]
-        mesh.topology.create_connectivity(cdim, vdim)
-        c2v_connect = mesh.topology.connectivity(cdim, vdim)
-        num_vertices_per_cell = len(c2v_connect.links(0))
-        c2v_map = np.reshape(c2v_connect.array, (-1, num_vertices_per_cell))
-
-        mesh.topology.create_connectivity(vdim, cdim)
-        v2c_connect = mesh.topology.connectivity(vdim, cdim)
-        v2c_map, max_offset = _reshape_map(v2c_connect)
-
-        neighbor_cells = np.reshape(
-            v2c_map[c2v_map[cut_indices]], (-1, num_vertices_per_cell * max_offset)
+        exterior_indices, cut_indices, interior_indices = _remove_isolated_cells(
+            mesh, exterior_indices, cut_indices, interior_indices
         )
-        mask_connected_cut_cells = np.any(
-            np.isin(neighbor_cells, interior_indices), axis=1
-        )
-        isolated_cut_cells = cut_indices[~mask_connected_cut_cells]
-        cut_indices = np.setdiff1d(cut_indices, isolated_cut_cells)
-        exterior_indices = np.union1d(exterior_indices, isolated_cut_cells)
 
     if debug_mode:
         if len(interior_indices) == 0:
@@ -480,7 +503,6 @@ def _tag_cells(
     cells_tags = dfx.mesh.meshtags(
         mesh, mesh.topology.dim, indices[sorted_indices], markers[sorted_indices]
     )
-
     return cells_tags
 
 
