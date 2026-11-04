@@ -589,9 +589,12 @@ def _tag_facets(
     levelset_eval_bdy = levelset_expression_facets.eval(
         mesh, cell_facet_pairs.reshape(-1, 2)
     )
-    exterior_bdy = np.min(levelset_eval_bdy, axis=1) > 0.0
-    interior_bdy = np.max(levelset_eval_bdy, axis=1) < 0.0
+
+    geq_zero_bdy = np.greater_equal(np.min(levelset_eval_bdy, axis=1), 0.0)
+    leq_zero_bdy = np.less_equal(np.max(levelset_eval_bdy, axis=1), 0.0)
     direct_bdy = np.isclose(np.sum(np.abs(levelset_eval_bdy), axis=1), 0.0)
+    exterior_bdy = np.logical_and(geq_zero_bdy, ~direct_bdy)
+    interior_bdy = np.logical_and(leq_zero_bdy, ~direct_bdy)
 
     facets_indices = np.hstack([interior_facets, boundary_facets])
     exterior = np.hstack([exterior_int, exterior_bdy])
