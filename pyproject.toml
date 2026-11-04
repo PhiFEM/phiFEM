@@ -16,7 +16,7 @@ maintainers = [
 description = "phiFEM: convenience tools to use the phiFEM immersed boundary finite element method with dolfinx."
 readme = "README.md"
 requires-python = ">=3.9"
-dependencies = ["fenics-dolfinx==0.9.0"]
+dependencies = ["fenics-dolfinx>=0.9.0,<0.11"]
 classifiers = [
 	"Programming Language :: Python :: 3",
 	"Operating System :: OS Independent",
