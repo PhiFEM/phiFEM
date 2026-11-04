@@ -380,8 +380,9 @@ def _transfer_tags(
     # TODO: change this line to allow parallel computing
     source_tags = source_mesh_tags.values
 
-    dest_entities = np.arange(len(emap))
-    dest_tags = source_tags[emap]
+    num_entities = emap.topology.index_map(edim).size_local
+    dest_entities = np.arange(num_entities)
+    dest_tags = emap.sub_topology_to_topology(source_tags, False)
 
     dest_entities_indices = np.hstack(dest_entities).astype(np.int32)
     dest_entities_markers = np.hstack(dest_tags).astype(np.int32)
@@ -570,21 +571,30 @@ def _tag_facets(
     interior_facets = np.setdiff1d(all_facets, boundary_facets)
 
     cell_facet_pairs = _cells_facets_pairs(f2c_map, c2f_map, interior_facets)
-    levelset_eval_int = levelset_expression_facets.eval(mesh, cell_facet_pairs)
+    levelset_eval_int = levelset_expression_facets.eval(
+        mesh, cell_facet_pairs.reshape(-1, 2)
+    )
 
-    exterior_int = np.min(levelset_eval_int, axis=1) > 0.0
-    interior_int = np.max(levelset_eval_int, axis=1) < 0.0
+    geq_zero_int = np.greater_equal(np.min(levelset_eval_int, axis=1), 0.0)
+    leq_zero_int = np.less_equal(np.max(levelset_eval_int, axis=1), 0.0)
     direct_int = np.isclose(np.sum(np.abs(levelset_eval_int), axis=1), 0.0)
+    exterior_int = np.logical_and(geq_zero_int, ~direct_int)
+    interior_int = np.logical_and(leq_zero_int, ~direct_int)
 
     connected_cells = f2c_map[boundary_facets][:, 0]
 
     cell_facet_pairs = _compute_integration_entities(
         mesh, connected_cells, boundary_facets, 0
     )[0][1]
-    levelset_eval_bdy = levelset_expression_facets.eval(mesh, cell_facet_pairs)
-    exterior_bdy = np.min(levelset_eval_bdy, axis=1) > 0.0
-    interior_bdy = np.max(levelset_eval_bdy, axis=1) < 0.0
+    levelset_eval_bdy = levelset_expression_facets.eval(
+        mesh, cell_facet_pairs.reshape(-1, 2)
+    )
+
+    geq_zero_bdy = np.greater_equal(np.min(levelset_eval_bdy, axis=1), 0.0)
+    leq_zero_bdy = np.less_equal(np.max(levelset_eval_bdy, axis=1), 0.0)
     direct_bdy = np.isclose(np.sum(np.abs(levelset_eval_bdy), axis=1), 0.0)
+    exterior_bdy = np.logical_and(geq_zero_bdy, ~direct_bdy)
+    interior_bdy = np.logical_and(leq_zero_bdy, ~direct_bdy)
 
     facets_indices = np.hstack([interior_facets, boundary_facets])
     exterior = np.hstack([exterior_int, exterior_bdy])
@@ -702,7 +712,7 @@ def _compute_codim_interpolation_points(
     codim_cell_name = codim_mesh.topology.cell_name()
     new_elmt = element(family_name, codim_cell_name, degree)
     new_space = dfx.fem.functionspace(codim_mesh, new_elmt)
-    return new_space.element.interpolation_points()
+    return new_space.element.interpolation_points
 
 
 def _levelset_expression(
@@ -769,7 +779,7 @@ def compute_tags_measures(
         The boundaries measure.
         Submesh c-map, v-map and n-map.
     """
-    interpolation_points = detection_space.element.interpolation_points()
+    interpolation_points = detection_space.element.interpolation_points
     levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
 
     cells_tags = _tag_cells(mesh, levelset_expression, single_layer_cut)
