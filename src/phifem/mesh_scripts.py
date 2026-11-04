@@ -575,9 +575,11 @@ def _tag_facets(
         mesh, cell_facet_pairs.reshape(-1, 2)
     )
 
-    exterior_int = np.min(levelset_eval_int, axis=1) > 0.0
-    interior_int = np.max(levelset_eval_int, axis=1) < 0.0
+    geq_zero_int = np.greater_equal(np.min(levelset_eval_int, axis=1), 0.0)
+    leq_zero_int = np.less_equal(np.max(levelset_eval_int, axis=1), 0.0)
     direct_int = np.isclose(np.sum(np.abs(levelset_eval_int), axis=1), 0.0)
+    exterior_int = np.logical_and(geq_zero_int, ~direct_int)
+    interior_int = np.logical_and(leq_zero_int, ~direct_int)
 
     connected_cells = f2c_map[boundary_facets][:, 0]
 
