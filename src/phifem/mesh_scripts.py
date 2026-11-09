@@ -270,7 +270,7 @@ def _remove_isolated_cells(
 
 def _tag_cells(
     mesh: Mesh,
-    levelset_expression: Expression,
+    levelset_eval_cells: Expression,
     single_layer_cut: bool,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
@@ -280,21 +280,14 @@ def _tag_cells(
 
     Args:
         mesh: the background mesh.
-        discrete_levelset: the discretization of the levelset.
-        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        levelset_eval_cells: the evaluation of the levelset Expression over all cells of the mesh.
         single_layer_cut: boolean, if True force a single layer of cut cells.
 
     Returns:
         The cells tags as a MeshTags object.
     """
-    cdim = mesh.topology.dim
-    all_cells = dfx.mesh.locate_entities(
-        mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
-    )
-    levelset_eval = levelset_expression.eval(mesh, all_cells)
-
-    exterior = np.min(levelset_eval, axis=1) > 0.0
-    interior = np.max(levelset_eval, axis=1) < 0.0
+    exterior = np.greater_equal(np.min(levelset_eval_cells, axis=1), 0.0)
+    interior = np.less_equal(np.max(levelset_eval_cells, axis=1), 0.0)
     cut = np.logical_not(np.logical_or(exterior, interior))
 
     exterior_indices = np.where(exterior)[0]
