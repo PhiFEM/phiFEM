@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import typing
-import warnings
 from collections.abc import Callable
 from os import PathLike
 
@@ -10,12 +9,10 @@ import dolfinx as dfx
 import numpy as np
 import numpy.typing as npt
 import ufl  # type: ignore
-from basix.ufl import _ElementBase, element
+from basix.ufl import element
 from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
 from dolfinx.fem import Expression, Function, FunctionSpace
-from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
-from ufl import inner
 
 PathStr = PathLike[str] | str
 
