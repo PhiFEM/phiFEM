@@ -330,31 +330,12 @@ def _tag_cells(
     return cells_tags
 
 
-def _cells_facets_pairs(f2c_map, c2f_map, facets):
-    """Get integration entities cells-facets pairs for the corresponding facets indices.
-
-    Args:
-        f2c_map: the facet to cell connectivity mapping.
-        c2f_map: the cell to facet connectivity mapping.
-        facets: the facets indices to get the pairs from.
-
-    Returns: the local indices of facets in their corresponding cells ordered as [cell_1 local_facet cell_2 local_facet cell_3 local_facet ...]
-    """
-    connected_cells = f2c_map[facets][:, 0]
-    facets_connected_cells = c2f_map[connected_cells]
-    facets_tiled = np.tile(facets[..., None], facets_connected_cells.shape[1])
-    mask = facets_tiled == facets_connected_cells
-    local_indices = np.where(mask)[1]
-    pairs = np.ravel([connected_cells.T, local_indices.T], "F")
-    return pairs
-
-
 def _tag_facets(
     mesh: Mesh,
-    levelset_expression_facets: Expression,
+    levelset_eval_facets: np.ndarray,
     single_layer_cut: bool,
     cells_tags: MeshTags | None = None,
-    levelset_expression_cells: Expression | None = None,
+    levelset_eval_cells: Expression | None = None,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -532,6 +513,7 @@ def _levelset_expression(
     mesh: dfx.mesh.Mesh,
     levelset: Function | Callable,
     interpolation_points: np.NDarray[np.float64],
+    entity_maps: list[dfx.mesh.EntityMap],
 ) -> Expression:
     """Sanitize the levelset input by turning it into an Expression.
 
@@ -545,9 +527,34 @@ def _levelset_expression(
     # Sanitize levelset input
     try:
         # Test if levelset is a dolfinx.fem.Function
-        _ = levelset.function_space
+        levelset_space = levelset.function_space
+        # If levelset is not defined on mesh, we interpolate it to a corresponding FE space
+        if id(levelset.function_space.mesh) != id(mesh):
+            levelset_space_element = levelset_space.ufl_element()
+            levelset_family = levelset_space_element.family_name
+            levelset_degree = levelset_space_element.degree
+            levelset_shape = levelset_space_element.reference_value_shape
+            new_element = element(
+                levelset_family,
+                mesh.topology.cell_name(),
+                levelset_degree,
+                shape=levelset_shape,
+            )
+            new_space = dfx.fem.functionspace(mesh, new_element)
+            all_cells = dfx.mesh.locate_entities(
+                mesh, mesh.topology.dim, lambda x: np.ones_like(x[0]).astype(bool)
+            )
+            nmm = dfx.fem.create_interpolation_data(
+                new_space, levelset_space, all_cells
+            )
+            new_levelset = dfx.fem.Function(new_space)
+            new_levelset.interpolate_nonmatching(
+                levelset, cells=all_cells, interpolation_data=nmm
+            )
+        else:
+            new_levelset = levelset
         levelset_expression = dfx.fem.Expression(
-            levelset, interpolation_points, comm=mesh.comm
+            new_levelset, interpolation_points, comm=mesh.comm, entity_maps=entity_maps
         )
     except AttributeError:
         try:
