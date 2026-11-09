@@ -96,13 +96,13 @@ def _compute_subdomain_exterior_facets(
     tags_as_arr = np.asarray(markers, dtype=ct.values.dtype)
     all_tagged_indices = np.isin(ct.values, tags_as_arr)
     entities = ct.indices[all_tagged_indices]
-    sub_mesh, cell_map = dfx.mesh.create_submesh(
+    sub_mesh, cell_map, vertex_map, _ = dfx.mesh.create_submesh(
         mesh,
         edim,
         entities,
-    )[:2]
+    )
 
-    new_et = _transfer_tags(ct, sub_mesh, cell_map, mesh)
+    new_et = dfx.mesh.transfer_meshtags_to_submesh(ct, sub_mesh, vertex_map, cell_map)
     new_et.name = ct.name
 
     sub_mesh.topology.create_connectivity(
@@ -139,115 +139,6 @@ def _compute_subdomain_exterior_facets(
     facet_map = mesh.topology.index_map(mesh.topology.dim - 1)
     # Accumulate ghost facets
     return _reverse_mark_entities(facet_map, parent_facets)
-
-
-def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate quadrature points on the reference segment.
-
-    Args:
-        N: int, N + 1 is the number of points on the segment.
-
-    Returns: A numpy array (2, N + 1) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        points = np.linspace(0, 1, N + 1).astype(np.float64)
-    else:
-        points = np.array([0.5]).astype(np.float64)
-    return np.atleast_2d(points).T
-
-
-def _reference_triangle_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate boundary quadrature points on the reference triangle cell.
-
-    Args:
-        N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
-
-    Returns: A numpy array (2, 3N) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        t1 = np.linspace(0, 1, N + 1)
-        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
-        t2 = t1[1:]
-        edge2 = np.stack((1 - t2, t2), axis=-1).astype(np.float64)
-        t3 = t1[1:-1]
-        edge3 = np.stack((np.zeros_like(t3), 1 - t3), axis=-1).astype(np.float64)
-
-        if N > 1:
-            points = np.concatenate((edge1, edge2, edge3), axis=0)
-        else:
-            points = np.concatenate((edge1, edge2), axis=0)
-    else:
-        points = np.array([[1.0 / 3.0, 1.0 / 3.0]]).astype(np.float64)
-    return points
-
-
-def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate boundary quadrature points on the reference square cell.
-
-    Args:
-        N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
-
-    Returns: A numpy array (2, 4N) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        t1 = np.linspace(0, 1, N + 1)
-        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
-        t2 = t1[1:]
-        edge2 = np.stack((np.ones_like(t2), t2), axis=-1).astype(np.float64)
-        t3 = t1[1:]
-        edge3 = np.stack((1.0 - t3, np.ones_like(t3)), axis=-1).astype(np.float64)
-        t4 = t1[1:-1]
-        edge4 = np.stack((np.zeros_like(t4), 1.0 - t4), axis=-1).astype(np.float64)
-
-        if N > 1:
-            points = np.concatenate((edge1, edge2, edge3, edge4), axis=0)
-        else:
-            points = np.concatenate((edge1, edge2, edge3), axis=0)
-    else:
-        points = np.array([[1.0 / 2.0, 1.0 / 2.0]]).astype(np.float64)
-    return points
-
-
-def _compute_detection_vector(
-    mesh: Mesh, discrete_levelset: Function, detection_measure: ufl.Measure
-):
-    """Computes the detection vector used to discriminate inside from cut from outside cells.
-
-    Args:
-        mesh: the mesh on which the detection is performed.
-        discrete_levelset: the levelset used for the detection.
-        detection_measure: the integration measure used to evaluate the levelset on the cells.
-
-    Return: the detection vector as a numpy array.
-    """
-    # We localize at each cell via a DG0 test function.
-    dg_0_element = element("DG", mesh.topology.cell_name(), 0)
-    dg_0_space = dfx.fem.functionspace(mesh, dg_0_element)
-    v0 = ufl.TestFunction(dg_0_space)
-
-    # Assemble the numerator of detection
-    detection_num = inner(discrete_levelset, v0) * detection_measure
-    detection_num_form = dfx.fem.form(detection_num)
-    detection_num_vec = assemble_vector(detection_num_form)
-    # Assemble the denominator of detection
-    detection_denom = inner(abs(discrete_levelset), v0) * detection_measure
-    detection_denom_form = dfx.fem.form(detection_denom)
-    detection_denom_vec = assemble_vector(detection_denom_form)
-
-    # detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
-    # However, in practice it can happen that for a very small cut triangle, detection_denom_vec is of the order of the machine precision.
-    # In this case, we set the value of detection_vector to 0.5, meaning we consider the cell as cut.
-    mask = np.where(detection_denom_vec.array > 0.0)
-    detection_vector = np.full_like(detection_num_vec.array, 0.5)
-    detection_vector[mask] = (
-        detection_num_vec.array[mask] / detection_denom_vec.array[mask]
-    )
-    if np.any(np.isclose(detection_denom_vec.array, 0.0)):
-        warnings.warn(
-            "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
-            RuntimeWarning,
-        )
-    return detection_vector
 
 
 def _compute_integration_entities(
@@ -328,74 +219,6 @@ def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
         for n in range(num):
             emap[mask, n] = array[num_e1_per_e2.cumsum()[mask] - n - 1]
     return emap, max_offset
-
-
-def _transfer_tags(
-    source_mesh_tags: MeshTags,
-    dest_mesh: Mesh,
-    cmap: npt.NDArray,
-    source_mesh: Mesh = None,
-) -> MeshTags:
-    """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
-
-    Args:
-        source_mesh_tags: the tags on the source mesh.
-        dest_mesh: the destination mesh.
-        cmap: the source mesh-destination mesh cells mapping.
-        source_mesh: the source mesh mandatory to transfer facets tags.
-
-    Returns:
-        Cells tags on the destination mesh.
-    """
-    cdim = dest_mesh.topology.dim
-    fdim = cdim - 1
-    edim = source_mesh_tags.dim
-
-    if edim == cdim:
-        emap = cmap
-    elif edim == fdim:
-        if source_mesh is None:
-            raise ValueError("You must pass a source_mesh to transfer facets tags.")
-
-        source_mesh.topology.create_connectivity(cdim, fdim)
-        c2f_connect = source_mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        source_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        dest_mesh.topology.create_connectivity(cdim, fdim)
-        c2f_connect = dest_mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        dest_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        source_c2f_dest_map = source_c2f_map[cmap]
-        source_c2f_dest_map = source_c2f_dest_map.reshape(
-            -1,
-        )
-        dest_c2f_map = dest_c2f_map.reshape(
-            -1,
-        )
-        sorted_indices = np.unique(dest_c2f_map, return_index=True)[1]
-        emap = source_c2f_dest_map[sorted_indices]
-    else:
-        raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
-
-    # TODO: change this line to allow parallel computing
-    source_tags = source_mesh_tags.values
-
-    num_entities = emap.topology.index_map(edim).size_local
-    dest_entities = np.arange(num_entities)
-    dest_tags = emap.sub_topology_to_topology(source_tags, False)
-
-    dest_entities_indices = np.hstack(dest_entities).astype(np.int32)
-    dest_entities_markers = np.hstack(dest_tags).astype(np.int32)
-    sorted_indices = np.argsort(dest_entities_indices)
-
-    dest_entities_tags = dfx.mesh.meshtags(
-        dest_mesh,
-        edim,
-        dest_entities_indices[sorted_indices],
-        dest_entities_markers[sorted_indices],
-    )
-
-    return dest_entities_tags
 
 
 def _remove_isolated_cells(
@@ -836,8 +659,12 @@ def compute_tags_measures(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        cells_tags = _transfer_tags(cells_tags, submesh, c_map)
-        facets_tags = _transfer_tags(facets_tags, submesh, c_map, source_mesh=mesh)
+        cells_tags = dfx.mesh.transfer_meshtags_to_submesh(
+            cells_tags, submesh, v_map, c_map
+        )
+        facets_tags = dfx.mesh.transfer_meshtags_to_submesh(
+            facets_tags, submesh, v_map, c_map
+        )
         boundaries_measure = ufl.Measure("ds", domain=submesh)
         submesh_maps = [c_map, v_map, n_map]
 
