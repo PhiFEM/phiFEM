@@ -366,69 +366,53 @@ def _tag_facets(
 
     Args:
         mesh: the background mesh.
+        levelset_eval_facets: the evaluation of the levelset Expression over all facets of the mesh.
+        single_layer_cut: if True force a single layer of cut cells.
         cells_tags: the MeshTags object containing cells tags.
-        discrete_levelset: the discretization of the levelset.
-        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        levelset_eval_cells: the evaluation of the levelset Expression over all cells of the mesh.
 
     Returns:
         The facets tags as a MeshTags object.
     """
     if cells_tags is None:
-        assert levelset_expression_cells is not None, (
+        assert levelset_eval_cells is not None, (
             "You must either pass cells_tags or a levelset expression over the cells of the domain."
         )
-        cells_tags = _tag_cells(mesh, levelset_expression_cells, single_layer_cut)
+        cells_tags = _tag_cells(mesh, levelset_eval_cells, single_layer_cut)
 
     cdim = mesh.topology.dim
     fdim = cdim - 1
+
+    geq_zero = np.greater_equal(np.min(levelset_eval_facets, axis=1), 0.0)
+    leq_zero = np.less_equal(np.max(levelset_eval_facets, axis=1), 0.0)
+    direct = np.isclose(np.sum(np.abs(levelset_eval_facets), axis=1), 0.0)
+    exterior = np.logical_and(geq_zero, ~direct)
+    interior = np.logical_and(leq_zero, ~direct)
+
+    # Assert exterior and interior facets have at most 1 neighbor cut cell
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
-    c2f_connect = mesh.topology.connectivity(cdim, fdim)
     f2c_map = _reshape_map(f2c_connect)[0]
-    num_facets_per_cell = len(c2f_connect.links(0))
-    c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-
-    marker = lambda x: np.ones_like(x[0]).astype(bool)
-    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
-    boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, marker)
-    interior_facets = np.setdiff1d(all_facets, boundary_facets)
-
-    cell_facet_pairs = _cells_facets_pairs(f2c_map, c2f_map, interior_facets)
-    levelset_eval_int = levelset_expression_facets.eval(
-        mesh, cell_facet_pairs.reshape(-1, 2)
+    all_facets = dfx.mesh.locate_entities(
+        mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
     )
+    exterior_indices = all_facets[exterior]
+    interior_indices = all_facets[interior]
+    cut_cells_neighbor_exterior = exterior_indices[
+        np.all(cells_tags.values[f2c_map[exterior_indices]] == 2, axis=1)
+        * np.all(f2c_map[exterior_indices] != -1, axis=1)
+    ]
+    exterior_indices = np.setdiff1d(exterior_indices, cut_cells_neighbor_exterior)
+    cut_cells_neighbor_interior = interior_indices[
+        np.all(cells_tags.values[f2c_map[interior_indices]] == 2, axis=1)
+        * np.all(f2c_map[interior_indices] != -1, axis=1)
+    ]
+    interior_indices = np.setdiff1d(interior_indices, cut_cells_neighbor_interior)
+    direct_indices = all_facets[direct]
 
-    geq_zero_int = np.greater_equal(np.min(levelset_eval_int, axis=1), 0.0)
-    leq_zero_int = np.less_equal(np.max(levelset_eval_int, axis=1), 0.0)
-    direct_int = np.isclose(np.sum(np.abs(levelset_eval_int), axis=1), 0.0)
-    exterior_int = np.logical_and(geq_zero_int, ~direct_int)
-    interior_int = np.logical_and(leq_zero_int, ~direct_int)
-
-    connected_cells = f2c_map[boundary_facets][:, 0]
-
-    cell_facet_pairs = _compute_integration_entities(
-        mesh, connected_cells, boundary_facets, 0
-    )[0][1]
-    levelset_eval_bdy = levelset_expression_facets.eval(
-        mesh, cell_facet_pairs.reshape(-1, 2)
+    cut_indices = np.setdiff1d(
+        all_facets, np.union1d(exterior_indices, interior_indices)
     )
-
-    geq_zero_bdy = np.greater_equal(np.min(levelset_eval_bdy, axis=1), 0.0)
-    leq_zero_bdy = np.less_equal(np.max(levelset_eval_bdy, axis=1), 0.0)
-    direct_bdy = np.isclose(np.sum(np.abs(levelset_eval_bdy), axis=1), 0.0)
-    exterior_bdy = np.logical_and(geq_zero_bdy, ~direct_bdy)
-    interior_bdy = np.logical_and(leq_zero_bdy, ~direct_bdy)
-
-    facets_indices = np.hstack([interior_facets, boundary_facets])
-    exterior = np.hstack([exterior_int, exterior_bdy])
-    interior = np.hstack([interior_int, interior_bdy])
-    direct = np.hstack([direct_int, direct_bdy])
-    exterior_indices = facets_indices[exterior]
-    interior_indices = facets_indices[interior]
-    direct_indices = facets_indices[direct]
-
-    cut = np.logical_not(np.logical_or(exterior, interior))
-    cut_indices = facets_indices[cut]
     cut_indices = np.setdiff1d(cut_indices, direct_indices)
 
     # Compute the list of facets on the boundary of the union of cut cells
@@ -438,10 +422,16 @@ def _tag_facets(
         boundary_cut_indices = []
     boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
     boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
+
     interior_indices = np.setdiff1d(interior_indices, boundary_exterior_indices)
 
     boundary_interior_indices = np.intersect1d(boundary_cut_indices, exterior_indices)
     boundary_interior_indices = np.setdiff1d(boundary_interior_indices, direct_indices)
+    cut_indices_boundary = cut_indices[np.any(f2c_map[cut_indices] == -1, axis=1)]
+    cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
+    boundary_interior_indices = np.union1d(
+        boundary_interior_indices, cut_indices_boundary
+    )
     exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
 
     # Only exterior_facets might be empty
@@ -603,21 +593,36 @@ def compute_tags_measures(
         Submesh c-map, v-map and n-map.
     """
     interpolation_points = detection_space.element.interpolation_points
-    levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
+    levelset_expression = _levelset_expression(mesh, levelset, interpolation_points, [])
 
-    cells_tags = _tag_cells(mesh, levelset_expression, single_layer_cut)
+    cdim = mesh.topology.dim
+    all_cells = dfx.mesh.locate_entities(
+        mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    levelset_eval_cells = levelset_expression.eval(mesh, all_cells)
+
+    cells_tags = _tag_cells(mesh, levelset_eval_cells, single_layer_cut)
 
     codim_interpolation_points = _compute_codim_interpolation_points(detection_space)
+    fdim = mesh.topology.dim - 1
+    marker = lambda x: np.ones_like(x[0]).astype(bool)
+    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
+    wireframe, emap = dfx.mesh.create_submesh(mesh, fdim, all_facets)[:2]
+
     levelset_expression_facets = _levelset_expression(
-        mesh, levelset, codim_interpolation_points
+        wireframe, levelset, codim_interpolation_points, [emap]
     )
+
+    marker = lambda x: np.ones_like(x[0]).astype(bool)
+    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
+    levelset_eval_facets = levelset_expression_facets.eval(wireframe, all_facets)
 
     facets_tags = _tag_facets(
         mesh,
-        levelset_expression_facets,
+        levelset_eval_facets,
         single_layer_cut,
         cells_tags=cells_tags,
-        levelset_expression_cells=levelset_expression,
+        levelset_eval_cells=levelset_eval_cells,
     )
 
     if overwrite_tags is not None:
