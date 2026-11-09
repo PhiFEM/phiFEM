@@ -249,8 +249,15 @@ def _remove_isolated_cells(
         np.isin(neighbor_cells, exterior_indices), axis=1
     )
 
+    boundary_nodes = dfx.mesh.locate_entities_boundary(
+        mesh, 0, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    boundary_cells = v2c_map[boundary_nodes]
+
     cut_disconnected_interior = cut_indices[mask_no_interior_connected]
+    cut_disconnected_interior = np.setdiff1d(cut_disconnected_interior, boundary_cells)
     cut_disconnected_exterior = cut_indices[mask_no_exterior_connected]
+    cut_disconnected_exterior = np.setdiff1d(cut_disconnected_exterior, boundary_cells)
 
     cut_indices = np.setdiff1d(
         cut_indices, np.union1d(cut_disconnected_interior, cut_disconnected_exterior)
