@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import typing
-import warnings
 from collections.abc import Callable
 from os import PathLike
 
@@ -10,12 +9,10 @@ import dolfinx as dfx
 import numpy as np
 import numpy.typing as npt
 import ufl  # type: ignore
-from basix.ufl import _ElementBase, element
+from basix.ufl import element
 from dolfinx.cpp.graph import AdjacencyList_int32  # type: ignore
 from dolfinx.fem import Expression, Function, FunctionSpace
-from dolfinx.fem.petsc import assemble_vector
 from dolfinx.mesh import Mesh, MeshTags
-from ufl import inner
 
 PathStr = PathLike[str] | str
 
@@ -96,13 +93,13 @@ def _compute_subdomain_exterior_facets(
     tags_as_arr = np.asarray(markers, dtype=ct.values.dtype)
     all_tagged_indices = np.isin(ct.values, tags_as_arr)
     entities = ct.indices[all_tagged_indices]
-    sub_mesh, cell_map = dfx.mesh.create_submesh(
+    sub_mesh, cell_map, vertex_map, _ = dfx.mesh.create_submesh(
         mesh,
         edim,
         entities,
-    )[:2]
+    )
 
-    new_et = _transfer_tags(ct, sub_mesh, cell_map, mesh)
+    new_et = dfx.mesh.transfer_meshtags_to_submesh(ct, sub_mesh, vertex_map, cell_map)
     new_et.name = ct.name
 
     sub_mesh.topology.create_connectivity(
@@ -139,115 +136,6 @@ def _compute_subdomain_exterior_facets(
     facet_map = mesh.topology.index_map(mesh.topology.dim - 1)
     # Accumulate ghost facets
     return _reverse_mark_entities(facet_map, parent_facets)
-
-
-def _reference_segment_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate quadrature points on the reference segment.
-
-    Args:
-        N: int, N + 1 is the number of points on the segment.
-
-    Returns: A numpy array (2, N + 1) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        points = np.linspace(0, 1, N + 1).astype(np.float64)
-    else:
-        points = np.array([0.5]).astype(np.float64)
-    return np.atleast_2d(points).T
-
-
-def _reference_triangle_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate boundary quadrature points on the reference triangle cell.
-
-    Args:
-        N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
-
-    Returns: A numpy array (2, 3N) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        t1 = np.linspace(0, 1, N + 1)
-        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
-        t2 = t1[1:]
-        edge2 = np.stack((1 - t2, t2), axis=-1).astype(np.float64)
-        t3 = t1[1:-1]
-        edge3 = np.stack((np.zeros_like(t3), 1 - t3), axis=-1).astype(np.float64)
-
-        if N > 1:
-            points = np.concatenate((edge1, edge2, edge3), axis=0)
-        else:
-            points = np.concatenate((edge1, edge2), axis=0)
-    else:
-        points = np.array([[1.0 / 3.0, 1.0 / 3.0]]).astype(np.float64)
-    return points
-
-
-def _reference_square_boundary_points(N: int) -> npt.NDArray[np.float64]:
-    """Generate boundary quadrature points on the reference square cell.
-
-    Args:
-        N: int the number of points on each edge (if N=0, there is only one point at the center of the cell).
-
-    Returns: A numpy array (2, 4N) that contains the coordinates of the quadrature points.
-    """
-    if N > 0:
-        t1 = np.linspace(0, 1, N + 1)
-        edge1 = np.stack((t1, np.zeros_like(t1)), axis=-1).astype(np.float64)
-        t2 = t1[1:]
-        edge2 = np.stack((np.ones_like(t2), t2), axis=-1).astype(np.float64)
-        t3 = t1[1:]
-        edge3 = np.stack((1.0 - t3, np.ones_like(t3)), axis=-1).astype(np.float64)
-        t4 = t1[1:-1]
-        edge4 = np.stack((np.zeros_like(t4), 1.0 - t4), axis=-1).astype(np.float64)
-
-        if N > 1:
-            points = np.concatenate((edge1, edge2, edge3, edge4), axis=0)
-        else:
-            points = np.concatenate((edge1, edge2, edge3), axis=0)
-    else:
-        points = np.array([[1.0 / 2.0, 1.0 / 2.0]]).astype(np.float64)
-    return points
-
-
-def _compute_detection_vector(
-    mesh: Mesh, discrete_levelset: Function, detection_measure: ufl.Measure
-):
-    """Computes the detection vector used to discriminate inside from cut from outside cells.
-
-    Args:
-        mesh: the mesh on which the detection is performed.
-        discrete_levelset: the levelset used for the detection.
-        detection_measure: the integration measure used to evaluate the levelset on the cells.
-
-    Return: the detection vector as a numpy array.
-    """
-    # We localize at each cell via a DG0 test function.
-    dg_0_element = element("DG", mesh.topology.cell_name(), 0)
-    dg_0_space = dfx.fem.functionspace(mesh, dg_0_element)
-    v0 = ufl.TestFunction(dg_0_space)
-
-    # Assemble the numerator of detection
-    detection_num = inner(discrete_levelset, v0) * detection_measure
-    detection_num_form = dfx.fem.form(detection_num)
-    detection_num_vec = assemble_vector(detection_num_form)
-    # Assemble the denominator of detection
-    detection_denom = inner(abs(discrete_levelset), v0) * detection_measure
-    detection_denom_form = dfx.fem.form(detection_denom)
-    detection_denom_vec = assemble_vector(detection_denom_form)
-
-    # detection_denom_vec is not supposed to be zero, this would mean that the levelset is zero at all dofs in a cell.
-    # However, in practice it can happen that for a very small cut triangle, detection_denom_vec is of the order of the machine precision.
-    # In this case, we set the value of detection_vector to 0.5, meaning we consider the cell as cut.
-    mask = np.where(detection_denom_vec.array > 0.0)
-    detection_vector = np.full_like(detection_num_vec.array, 0.5)
-    detection_vector[mask] = (
-        detection_num_vec.array[mask] / detection_denom_vec.array[mask]
-    )
-    if np.any(np.isclose(detection_denom_vec.array, 0.0)):
-        warnings.warn(
-            "The detection function is zero everywhere on a cell. We mark it as 'cut' but this can be incorrect and should be carefully checked.",
-            RuntimeWarning,
-        )
-    return detection_vector
 
 
 def _compute_integration_entities(
@@ -330,74 +218,6 @@ def _reshape_map(connect: AdjacencyList_int32) -> npt.NDArray[np.int32]:
     return emap, max_offset
 
 
-def _transfer_tags(
-    source_mesh_tags: MeshTags,
-    dest_mesh: Mesh,
-    cmap: npt.NDArray,
-    source_mesh: Mesh = None,
-) -> MeshTags:
-    """Given entities tags (cells or facets) from a source mesh, a destination mesh and the source mesh-destination mesh cells mapping, transfers the entities tags to the destination mesh.
-
-    Args:
-        source_mesh_tags: the tags on the source mesh.
-        dest_mesh: the destination mesh.
-        cmap: the source mesh-destination mesh cells mapping.
-        source_mesh: the source mesh mandatory to transfer facets tags.
-
-    Returns:
-        Cells tags on the destination mesh.
-    """
-    cdim = dest_mesh.topology.dim
-    fdim = cdim - 1
-    edim = source_mesh_tags.dim
-
-    if edim == cdim:
-        emap = cmap
-    elif edim == fdim:
-        if source_mesh is None:
-            raise ValueError("You must pass a source_mesh to transfer facets tags.")
-
-        source_mesh.topology.create_connectivity(cdim, fdim)
-        c2f_connect = source_mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        source_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        dest_mesh.topology.create_connectivity(cdim, fdim)
-        c2f_connect = dest_mesh.topology.connectivity(cdim, fdim)
-        num_facets_per_cell = len(c2f_connect.links(0))
-        dest_c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-        source_c2f_dest_map = source_c2f_map[cmap]
-        source_c2f_dest_map = source_c2f_dest_map.reshape(
-            -1,
-        )
-        dest_c2f_map = dest_c2f_map.reshape(
-            -1,
-        )
-        sorted_indices = np.unique(dest_c2f_map, return_index=True)[1]
-        emap = source_c2f_dest_map[sorted_indices]
-    else:
-        raise ValueError("The source_mesh_tags can only be cells tags or facets tags.")
-
-    # TODO: change this line to allow parallel computing
-    source_tags = source_mesh_tags.values
-
-    num_entities = emap.topology.index_map(edim).size_local
-    dest_entities = np.arange(num_entities)
-    dest_tags = emap.sub_topology_to_topology(source_tags, False)
-
-    dest_entities_indices = np.hstack(dest_entities).astype(np.int32)
-    dest_entities_markers = np.hstack(dest_tags).astype(np.int32)
-    sorted_indices = np.argsort(dest_entities_indices)
-
-    dest_entities_tags = dfx.mesh.meshtags(
-        dest_mesh,
-        edim,
-        dest_entities_indices[sorted_indices],
-        dest_entities_markers[sorted_indices],
-    )
-
-    return dest_entities_tags
-
-
 def _remove_isolated_cells(
     mesh: dfx.mesh.Mesh,
     exterior_indices: np.ndarray[np.int32],
@@ -426,8 +246,15 @@ def _remove_isolated_cells(
         np.isin(neighbor_cells, exterior_indices), axis=1
     )
 
+    boundary_nodes = dfx.mesh.locate_entities_boundary(
+        mesh, 0, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    boundary_cells = v2c_map[boundary_nodes]
+
     cut_disconnected_interior = cut_indices[mask_no_interior_connected]
+    cut_disconnected_interior = np.setdiff1d(cut_disconnected_interior, boundary_cells)
     cut_disconnected_exterior = cut_indices[mask_no_exterior_connected]
+    cut_disconnected_exterior = np.setdiff1d(cut_disconnected_exterior, boundary_cells)
 
     cut_indices = np.setdiff1d(
         cut_indices, np.union1d(cut_disconnected_interior, cut_disconnected_exterior)
@@ -440,7 +267,7 @@ def _remove_isolated_cells(
 
 def _tag_cells(
     mesh: Mesh,
-    levelset_expression: Expression,
+    levelset_eval_cells: Expression,
     single_layer_cut: bool,
 ) -> MeshTags:
     """Tag the mesh cells by computing detection = Σ f(dof)/Σ|f(dof)| where 'dof' are coming from a custom quadrature rule with points on the boundary of the cell only.
@@ -450,21 +277,14 @@ def _tag_cells(
 
     Args:
         mesh: the background mesh.
-        discrete_levelset: the discretization of the levelset.
-        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        levelset_eval_cells: the evaluation of the levelset Expression over all cells of the mesh.
         single_layer_cut: boolean, if True force a single layer of cut cells.
 
     Returns:
         The cells tags as a MeshTags object.
     """
-    cdim = mesh.topology.dim
-    all_cells = dfx.mesh.locate_entities(
-        mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
-    )
-    levelset_eval = levelset_expression.eval(mesh, all_cells)
-
-    exterior = np.min(levelset_eval, axis=1) > 0.0
-    interior = np.max(levelset_eval, axis=1) < 0.0
+    exterior = np.greater_equal(np.min(levelset_eval_cells, axis=1), 0.0)
+    interior = np.less_equal(np.max(levelset_eval_cells, axis=1), 0.0)
     cut = np.logical_not(np.logical_or(exterior, interior))
 
     exterior_indices = np.where(exterior)[0]
@@ -507,31 +327,12 @@ def _tag_cells(
     return cells_tags
 
 
-def _cells_facets_pairs(f2c_map, c2f_map, facets):
-    """Get integration entities cells-facets pairs for the corresponding facets indices.
-
-    Args:
-        f2c_map: the facet to cell connectivity mapping.
-        c2f_map: the cell to facet connectivity mapping.
-        facets: the facets indices to get the pairs from.
-
-    Returns: the local indices of facets in their corresponding cells ordered as [cell_1 local_facet cell_2 local_facet cell_3 local_facet ...]
-    """
-    connected_cells = f2c_map[facets][:, 0]
-    facets_connected_cells = c2f_map[connected_cells]
-    facets_tiled = np.tile(facets[..., None], facets_connected_cells.shape[1])
-    mask = facets_tiled == facets_connected_cells
-    local_indices = np.where(mask)[1]
-    pairs = np.ravel([connected_cells.T, local_indices.T], "F")
-    return pairs
-
-
 def _tag_facets(
     mesh: Mesh,
-    levelset_expression_facets: Expression,
+    levelset_eval_facets: np.ndarray,
     single_layer_cut: bool,
     cells_tags: MeshTags | None = None,
-    levelset_expression_cells: Expression | None = None,
+    levelset_eval_cells: Expression | None = None,
 ) -> MeshTags:
     """Tag the mesh facets.
     Strictly interior facets  => tag 1
@@ -543,69 +344,53 @@ def _tag_facets(
 
     Args:
         mesh: the background mesh.
+        levelset_eval_facets: the evaluation of the levelset Expression over all facets of the mesh.
+        single_layer_cut: if True force a single layer of cut cells.
         cells_tags: the MeshTags object containing cells tags.
-        discrete_levelset: the discretization of the levelset.
-        detection_degree: the degree of the custom quadrature rule used to detect cut entities.
+        levelset_eval_cells: the evaluation of the levelset Expression over all cells of the mesh.
 
     Returns:
         The facets tags as a MeshTags object.
     """
     if cells_tags is None:
-        assert levelset_expression_cells is not None, (
+        assert levelset_eval_cells is not None, (
             "You must either pass cells_tags or a levelset expression over the cells of the domain."
         )
-        cells_tags = _tag_cells(mesh, levelset_expression_cells, single_layer_cut)
+        cells_tags = _tag_cells(mesh, levelset_eval_cells, single_layer_cut)
 
     cdim = mesh.topology.dim
     fdim = cdim - 1
+
+    geq_zero = np.greater_equal(np.min(levelset_eval_facets, axis=1), 0.0)
+    leq_zero = np.less_equal(np.max(levelset_eval_facets, axis=1), 0.0)
+    direct = np.isclose(np.sum(np.abs(levelset_eval_facets), axis=1), 0.0)
+    exterior = np.logical_and(geq_zero, ~direct)
+    interior = np.logical_and(leq_zero, ~direct)
+
+    # Assert exterior and interior facets have at most 1 neighbor cut cell
     mesh.topology.create_connectivity(fdim, cdim)
     f2c_connect = mesh.topology.connectivity(fdim, cdim)
-    c2f_connect = mesh.topology.connectivity(cdim, fdim)
     f2c_map = _reshape_map(f2c_connect)[0]
-    num_facets_per_cell = len(c2f_connect.links(0))
-    c2f_map = np.reshape(c2f_connect.array, (-1, num_facets_per_cell))
-
-    marker = lambda x: np.ones_like(x[0]).astype(bool)
-    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
-    boundary_facets = dfx.mesh.locate_entities_boundary(mesh, fdim, marker)
-    interior_facets = np.setdiff1d(all_facets, boundary_facets)
-
-    cell_facet_pairs = _cells_facets_pairs(f2c_map, c2f_map, interior_facets)
-    levelset_eval_int = levelset_expression_facets.eval(
-        mesh, cell_facet_pairs.reshape(-1, 2)
+    all_facets = dfx.mesh.locate_entities(
+        mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
     )
+    exterior_indices = all_facets[exterior]
+    interior_indices = all_facets[interior]
+    cut_cells_neighbor_exterior = exterior_indices[
+        np.all(cells_tags.values[f2c_map[exterior_indices]] == 2, axis=1)
+        * np.all(f2c_map[exterior_indices] != -1, axis=1)
+    ]
+    exterior_indices = np.setdiff1d(exterior_indices, cut_cells_neighbor_exterior)
+    cut_cells_neighbor_interior = interior_indices[
+        np.all(cells_tags.values[f2c_map[interior_indices]] == 2, axis=1)
+        * np.all(f2c_map[interior_indices] != -1, axis=1)
+    ]
+    interior_indices = np.setdiff1d(interior_indices, cut_cells_neighbor_interior)
+    direct_indices = all_facets[direct]
 
-    geq_zero_int = np.greater_equal(np.min(levelset_eval_int, axis=1), 0.0)
-    leq_zero_int = np.less_equal(np.max(levelset_eval_int, axis=1), 0.0)
-    direct_int = np.isclose(np.sum(np.abs(levelset_eval_int), axis=1), 0.0)
-    exterior_int = np.logical_and(geq_zero_int, ~direct_int)
-    interior_int = np.logical_and(leq_zero_int, ~direct_int)
-
-    connected_cells = f2c_map[boundary_facets][:, 0]
-
-    cell_facet_pairs = _compute_integration_entities(
-        mesh, connected_cells, boundary_facets, 0
-    )[0][1]
-    levelset_eval_bdy = levelset_expression_facets.eval(
-        mesh, cell_facet_pairs.reshape(-1, 2)
+    cut_indices = np.setdiff1d(
+        all_facets, np.union1d(exterior_indices, interior_indices)
     )
-
-    geq_zero_bdy = np.greater_equal(np.min(levelset_eval_bdy, axis=1), 0.0)
-    leq_zero_bdy = np.less_equal(np.max(levelset_eval_bdy, axis=1), 0.0)
-    direct_bdy = np.isclose(np.sum(np.abs(levelset_eval_bdy), axis=1), 0.0)
-    exterior_bdy = np.logical_and(geq_zero_bdy, ~direct_bdy)
-    interior_bdy = np.logical_and(leq_zero_bdy, ~direct_bdy)
-
-    facets_indices = np.hstack([interior_facets, boundary_facets])
-    exterior = np.hstack([exterior_int, exterior_bdy])
-    interior = np.hstack([interior_int, interior_bdy])
-    direct = np.hstack([direct_int, direct_bdy])
-    exterior_indices = facets_indices[exterior]
-    interior_indices = facets_indices[interior]
-    direct_indices = facets_indices[direct]
-
-    cut = np.logical_not(np.logical_or(exterior, interior))
-    cut_indices = facets_indices[cut]
     cut_indices = np.setdiff1d(cut_indices, direct_indices)
 
     # Compute the list of facets on the boundary of the union of cut cells
@@ -615,10 +400,16 @@ def _tag_facets(
         boundary_cut_indices = []
     boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
     boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
+
     interior_indices = np.setdiff1d(interior_indices, boundary_exterior_indices)
 
     boundary_interior_indices = np.intersect1d(boundary_cut_indices, exterior_indices)
     boundary_interior_indices = np.setdiff1d(boundary_interior_indices, direct_indices)
+    cut_indices_boundary = cut_indices[np.any(f2c_map[cut_indices] == -1, axis=1)]
+    cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
+    boundary_interior_indices = np.union1d(
+        boundary_interior_indices, cut_indices_boundary
+    )
     exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
 
     # Only exterior_facets might be empty
@@ -719,6 +510,7 @@ def _levelset_expression(
     mesh: dfx.mesh.Mesh,
     levelset: Function | Callable,
     interpolation_points: np.NDarray[np.float64],
+    entity_maps: list[dfx.mesh.EntityMap],
 ) -> Expression:
     """Sanitize the levelset input by turning it into an Expression.
 
@@ -732,9 +524,34 @@ def _levelset_expression(
     # Sanitize levelset input
     try:
         # Test if levelset is a dolfinx.fem.Function
-        _ = levelset.function_space
+        levelset_space = levelset.function_space
+        # If levelset is not defined on mesh, we interpolate it to a corresponding FE space
+        if id(levelset.function_space.mesh) != id(mesh):
+            levelset_space_element = levelset_space.ufl_element()
+            levelset_family = levelset_space_element.family_name
+            levelset_degree = levelset_space_element.degree
+            levelset_shape = levelset_space_element.reference_value_shape
+            new_element = element(
+                levelset_family,
+                mesh.topology.cell_name(),
+                levelset_degree,
+                shape=levelset_shape,
+            )
+            new_space = dfx.fem.functionspace(mesh, new_element)
+            all_cells = dfx.mesh.locate_entities(
+                mesh, mesh.topology.dim, lambda x: np.ones_like(x[0]).astype(bool)
+            )
+            nmm = dfx.fem.create_interpolation_data(
+                new_space, levelset_space, all_cells
+            )
+            new_levelset = dfx.fem.Function(new_space)
+            new_levelset.interpolate_nonmatching(
+                levelset, cells=all_cells, interpolation_data=nmm
+            )
+        else:
+            new_levelset = levelset
         levelset_expression = dfx.fem.Expression(
-            levelset, interpolation_points, comm=mesh.comm
+            new_levelset, interpolation_points, comm=mesh.comm, entity_maps=entity_maps
         )
     except AttributeError:
         try:
@@ -780,21 +597,36 @@ def compute_tags_measures(
         Submesh c-map, v-map and n-map.
     """
     interpolation_points = detection_space.element.interpolation_points
-    levelset_expression = _levelset_expression(mesh, levelset, interpolation_points)
+    levelset_expression = _levelset_expression(mesh, levelset, interpolation_points, [])
 
-    cells_tags = _tag_cells(mesh, levelset_expression, single_layer_cut)
+    cdim = mesh.topology.dim
+    all_cells = dfx.mesh.locate_entities(
+        mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
+    )
+    levelset_eval_cells = levelset_expression.eval(mesh, all_cells)
+
+    cells_tags = _tag_cells(mesh, levelset_eval_cells, single_layer_cut)
 
     codim_interpolation_points = _compute_codim_interpolation_points(detection_space)
+    fdim = mesh.topology.dim - 1
+    marker = lambda x: np.ones_like(x[0]).astype(bool)
+    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
+    wireframe, emap = dfx.mesh.create_submesh(mesh, fdim, all_facets)[:2]
+
     levelset_expression_facets = _levelset_expression(
-        mesh, levelset, codim_interpolation_points
+        wireframe, levelset, codim_interpolation_points, [emap]
     )
+
+    marker = lambda x: np.ones_like(x[0]).astype(bool)
+    all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
+    levelset_eval_facets = levelset_expression_facets.eval(wireframe, all_facets)
 
     facets_tags = _tag_facets(
         mesh,
-        levelset_expression_facets,
+        levelset_eval_facets,
         single_layer_cut,
         cells_tags=cells_tags,
-        levelset_expression_cells=levelset_expression,
+        levelset_eval_cells=levelset_eval_cells,
     )
 
     if overwrite_tags is not None:
@@ -836,8 +668,12 @@ def compute_tags_measures(
             mesh, mesh.topology.dim, omega_h_cells
         )  # type: ignore
 
-        cells_tags = _transfer_tags(cells_tags, submesh, c_map)
-        facets_tags = _transfer_tags(facets_tags, submesh, c_map, source_mesh=mesh)
+        cells_tags = dfx.mesh.transfer_meshtags_to_submesh(
+            cells_tags, submesh, v_map, c_map
+        )
+        facets_tags = dfx.mesh.transfer_meshtags_to_submesh(
+            facets_tags, submesh, v_map, c_map
+        )
         boundaries_measure = ufl.Measure("ds", domain=submesh)
         submesh_maps = [c_map, v_map, n_map]
 
