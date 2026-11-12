@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import typing
 from collections.abc import Callable
+from enum import IntEnum
 from os import PathLike
 
 import dolfinx as dfx
@@ -492,7 +493,34 @@ def _tag_facets(
     return facets_tags
 
 
-def _overwrite_tags(mesh, tags_to_overwrite, new_tags):
+def _overwrite_tags(
+    mesh: dfx.mesh.Mesh,
+    tags_to_overwrite: dfx.mesh.MeshTags,
+    new_tags: dfx.mesh.MeshTags,
+) -> dfx.mesh.MeshTags:
+    """Overwrite the tags in tags_to_overwrite with new_tags.
+
+    Args:
+        mesh: the mesh on which the meshtags are defined.
+        tags_to_overwrite: the meshtags to be overwritten.
+        new_tags: the meshtags used to overwrite.
+
+    Return: the overwritten meshtags.
+    """
+    cdim = mesh.topology.dim
+    tags = np.unique(tags_to_overwrite.values)
+    if tags_to_overwrite.dim == cdim:
+        entities = "cells"
+    elif tags_to_overwrite.dim == cdim - 1:
+        entities = "facets"
+    if np.any(np.isin(tags, new_tags.values)):
+        raise ValueError(
+            "Cannot use the following values "
+            + str(tags)
+            + " to overwrite "
+            + entities
+            + " tags."
+        )
     stack_indices = np.hstack([new_tags.indices, tags_to_overwrite.indices])
     stack_values = np.hstack([new_tags.values, tags_to_overwrite.values])
     overwritten_indices, ind = np.unique(stack_indices, return_index=True)
@@ -702,3 +730,370 @@ def compute_tags_measures(
         boundaries_measure,
         submesh_maps,
     )
+
+
+class Phifem:
+    def __init__(
+        self,
+        mesh: dfx.mesh.Mesh,
+        levelset: dfx.fem.Function | Callable,
+        single_layer_cut: bool = True,
+        box_mode: bool = False,
+    ) -> None:
+        self._mesh = mesh
+        fdim = mesh.topology.dim - 1
+        marker = lambda x: np.ones_like(x[0]).astype(bool)
+        all_facets = dfx.mesh.locate_entities(mesh, fdim, marker)
+        self._wireframe, self._emap = dfx.mesh.create_submesh(mesh, fdim, all_facets)[
+            :2
+        ]
+        self._levelset = levelset
+        try:
+            # If the levelset
+            self._detection_space = levelset.function_space
+        except AttributeError:
+            self._detection_space = None
+
+        self._cells_tags_nums = IntEnum(
+            "cells_tags", [("inside", 1001), ("cut", 1002), ("outside", 1003)]
+        )
+        self._facets_tags_nums = IntEnum(
+            "facets_tags",
+            [
+                ("inside", 2001),
+                ("cut", 2002),
+                ("exterior_boundary", 2003),
+                ("interior_boundary", 2004),
+                ("outside", 2005),
+                ("fitted", 2006),
+            ],
+        )
+        self._cells_meshtags: dfx.mesh.MeshTags | None = None
+        self._facets_meshtags: dfx.mesh.MeshTags | None = None
+        self._levelset_expression_cells: dfx.fem.Expression | None = None
+        self._levelset_expression_facets: dfx.fem.Expression | None = None
+        self._levelset_eval_cells: np.ndarray | None = None
+        self._levelset_eval_facets: np.ndarray | None = None
+        self._single_layer_cut: bool = single_layer_cut
+        self._box_mode: bool = box_mode
+
+    def info(self) -> str:
+        info_txt = "Cells tags:\n"
+        for tag in self._cells_tags_nums:
+            info_txt += "  " + tag.name + ": " + str(tag) + "\n"
+        info_txt += "\nFacets tags:\n"
+        for tag in self._facets_tags_nums:
+            info_txt += "  " + tag.name + ": " + str(tag) + "\n"
+        return info_txt
+
+    @property
+    def cells_tag(self):
+        return self._cells_tags_nums
+
+    @property
+    def facets_tag(self):
+        return self._facets_tags_nums
+
+    def _sanitize_levelset_cells(self):
+        assert self._detection_space is not None, "You must provide a detection_space."
+        if self._levelset_expression_cells is None:
+            interpolation_points = self._detection_space.element.interpolation_points
+            self._levelset_expression_cells = _levelset_expression(
+                self._mesh, self._levelset, interpolation_points, []
+            )
+
+    def _sanitize_levelset_facets(self):
+        assert self._detection_space is not None, "You must provide a detection_space."
+        interpolation_points = _compute_codim_interpolation_points(
+            self._detection_space
+        )
+        self._levelset_expression_facets = _levelset_expression(
+            self._wireframe, self._levelset, interpolation_points, []
+        )
+
+    def _eval_levelset_at_cells(self):
+        self._sanitize_levelset_cells()
+        if self._levelset_eval_cells is None:
+            cdim = self._mesh.topology.dim
+            self._mesh.topology.index_map(cdim)
+            all_cells = dfx.mesh.locate_entities(
+                self._mesh, cdim, lambda x: np.ones_like(x[0]).astype(bool)
+            )
+            self._levelset_eval_cells = self._levelset_expression_cells.eval(
+                self._mesh, all_cells
+            )
+
+    def _eval_levelset_at_facets(self):
+        self._sanitize_levelset_facets()
+        if self._levelset_eval_facets is None:
+            fdim = self._mesh.topology.dim - 1
+            all_facets = dfx.mesh.locate_entities(
+                self._mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
+            )
+            self._levelset_eval_facets = self._levelset_expression_facets.eval(
+                self._wireframe, all_facets
+            )
+
+    @property
+    def detection_space(self) -> dfx.fem.FunctionSpace:
+        return self._detection_space
+
+    @property
+    def cells_tags(self) -> dfx.mesh.MeshTags | None:
+        return self._cells_meshtags
+
+    @property
+    def facets_tags(self) -> dfx.mesh.MeshTags | None:
+        return self._facets_meshtags
+
+    @detection_space.setter
+    def detection_space(self, space: dfx.fem.FunctionSpace) -> None:
+        self._detection_space = space
+
+    def tag_cells(self) -> dfx.mesh.MeshTags:
+        """Tag the mesh cells.
+        Strictly inside cell  => tag 1
+        Cut cell              => tag 2
+        Strictly outside cell => tag 3
+
+        Returns: the cells tags.
+        """
+        if self._cells_meshtags is None:
+            if self._levelset_eval_cells is None:
+                self._eval_levelset_at_cells()
+            exterior = np.greater_equal(np.min(self._levelset_eval_cells, axis=1), 0.0)
+            interior = np.less_equal(np.max(self._levelset_eval_cells, axis=1), 0.0)
+            cut = np.logical_not(np.logical_or(exterior, interior))
+
+            exterior_indices = np.where(exterior)[0]
+            interior_indices = np.where(interior)[0]
+            cut_indices = np.where(cut)[0]
+
+            if self._single_layer_cut:
+                exterior_indices, cut_indices, interior_indices = (
+                    _remove_isolated_cells(
+                        self._mesh, exterior_indices, cut_indices, interior_indices
+                    )
+                )
+
+            # Create the meshtags from the indices.
+            indices = np.hstack(
+                [exterior_indices, interior_indices, cut_indices]
+            ).astype(np.int32)
+            interior_marker = np.full_like(interior_indices, 1).astype(np.int32)
+            exterior_marker = np.full_like(exterior_indices, 3).astype(np.int32)
+            cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
+            markers = np.hstack([exterior_marker, interior_marker, cut_marker]).astype(
+                np.int32
+            )
+            sorted_indices = np.argsort(indices)
+            cells_meshtags = dfx.mesh.meshtags(
+                self._mesh,
+                self._mesh.topology.dim,
+                indices[sorted_indices],
+                markers[sorted_indices],
+            )
+            self._cells_meshtags = cells_meshtags
+            return cells_meshtags
+
+    def tag_facets(self) -> dfx.mesh.MeshTags:
+        """Tag the mesh facets.
+        Strictly interior facets  => tag 1
+        Cut facets                => tag 2
+        Interior boundary facets  => tag 3
+        Boundary facets (Gamma_h) => tag 4
+        Strictly exterior facets  => tag 5
+        Direct interface facets   => tag 6
+
+        Returns:
+            The facets tags.
+        """
+        if self._facets_meshtags is None:
+            if self._levelset_eval_facets is None:
+                self._eval_levelset_at_facets()
+            if self._cells_meshtags is None:
+                _ = self.tag_cells()
+
+            cdim = self._mesh.topology.dim
+            fdim = cdim - 1
+
+            geq_zero = np.greater_equal(np.min(self._levelset_eval_facets, axis=1), 0.0)
+            leq_zero = np.less_equal(np.max(self._levelset_eval_facets, axis=1), 0.0)
+            direct = np.isclose(np.sum(np.abs(self._levelset_eval_facets), axis=1), 0.0)
+            exterior = np.logical_and(geq_zero, ~direct)
+            interior = np.logical_and(leq_zero, ~direct)
+
+            # Assert exterior and interior facets have at most 1 neighbor cut cell
+            self._mesh.topology.create_connectivity(fdim, cdim)
+            f2c_connect = self._mesh.topology.connectivity(fdim, cdim)
+            f2c_map = _reshape_map(f2c_connect)[0]
+            all_facets = dfx.mesh.locate_entities(
+                self._mesh, fdim, lambda x: np.ones_like(x[0]).astype(bool)
+            )
+            exterior_indices = all_facets[exterior]
+            interior_indices = all_facets[interior]
+            cut_cells_neighbor_exterior = exterior_indices[
+                np.all(
+                    self._cells_meshtags.values[f2c_map[exterior_indices]] == 2, axis=1
+                )
+                * np.all(f2c_map[exterior_indices] != -1, axis=1)
+            ]
+            exterior_indices = np.setdiff1d(
+                exterior_indices, cut_cells_neighbor_exterior
+            )
+            cut_cells_neighbor_interior = interior_indices[
+                np.all(
+                    self._cells_meshtags.values[f2c_map[interior_indices]] == 2, axis=1
+                )
+                * np.all(f2c_map[interior_indices] != -1, axis=1)
+            ]
+            interior_indices = np.setdiff1d(
+                interior_indices, cut_cells_neighbor_interior
+            )
+            direct_indices = all_facets[direct]
+
+            cut_indices = np.setdiff1d(
+                all_facets, np.union1d(exterior_indices, interior_indices)
+            )
+            cut_indices = np.setdiff1d(cut_indices, direct_indices)
+
+            # Compute the list of facets on the boundary of the union of cut cells
+            if len(self._cells_meshtags.find(2)) > 0:
+                boundary_cut_indices = _compute_subdomain_exterior_facets(
+                    self._mesh, self._cells_meshtags, [2]
+                )
+            else:
+                boundary_cut_indices = []
+            boundary_exterior_indices = np.intersect1d(
+                boundary_cut_indices, interior_indices
+            )
+            boundary_exterior_indices = np.setdiff1d(
+                boundary_exterior_indices, direct_indices
+            )
+            cut_indices_boundary = cut_indices[
+                np.any(f2c_map[cut_indices] == -1, axis=1)
+                * np.any(self._cells_meshtags.values[f2c_map[cut_indices]] == 1, axis=1)
+            ]
+            cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
+            interior_indices = np.union1d(interior_indices, cut_indices_boundary)
+
+            interior_indices = np.setdiff1d(interior_indices, boundary_exterior_indices)
+
+            boundary_interior_indices = np.intersect1d(
+                boundary_cut_indices, exterior_indices
+            )
+            boundary_interior_indices = np.setdiff1d(
+                boundary_interior_indices, direct_indices
+            )
+            cut_indices_boundary = cut_indices[
+                np.any(f2c_map[cut_indices] == -1, axis=1)
+                * np.any(self._cells_meshtags.values[f2c_map[cut_indices]] == 2, axis=1)
+            ]
+            cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
+            boundary_interior_indices = np.union1d(
+                boundary_interior_indices, cut_indices_boundary
+            )
+            exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
+
+            cut_indices_boundary = cut_indices[
+                np.any(self._cells_meshtags.values[f2c_map[cut_indices]] == 1, axis=1)
+                * np.any(self._cells_meshtags.values[f2c_map[cut_indices]] == 2, axis=1)
+            ]
+            cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
+            boundary_exterior_indices = np.union1d(
+                boundary_exterior_indices, cut_indices_boundary
+            )
+
+            # Create the meshtags from the indices.
+            indices = np.hstack(
+                [
+                    exterior_indices,
+                    interior_indices,
+                    boundary_exterior_indices,
+                    cut_indices,
+                    boundary_interior_indices,
+                    direct_indices,
+                ]
+            ).astype(np.int32)
+            interior_marker = np.full_like(interior_indices, 1).astype(np.int32)
+            cut_marker = np.full_like(cut_indices, 2).astype(np.int32)
+            interior_boundary_marker = np.full_like(
+                boundary_exterior_indices, 3
+            ).astype(np.int32)
+            boundary_marker = np.full_like(boundary_interior_indices, 4).astype(
+                np.int32
+            )
+            exterior_marker = np.full_like(exterior_indices, 5).astype(np.int32)
+            direct_interface_marker = np.full_like(direct_indices, 6).astype(np.int32)
+            markers = np.hstack(
+                [
+                    exterior_marker,
+                    interior_marker,
+                    interior_boundary_marker,
+                    cut_marker,
+                    boundary_marker,
+                    direct_interface_marker,
+                ]
+            ).astype(np.int32)
+            sorted_indices = np.argsort(indices)
+
+            facets_tags = dfx.mesh.meshtags(
+                self._mesh, fdim, indices[sorted_indices], markers[sorted_indices]
+            )
+
+            self._facets_meshtags = facets_tags
+        return facets_tags
+
+    def overwrite_tags(
+        self, overwriting_meshtags: dfx.mesh.MeshTags
+    ) -> dfx.mesh.MeshTags:
+        """Overwrite the initial phiFEM tags.
+
+        Args:
+            overwriting_meshtags: the meshtags used to overwrite phifem meshtags.
+
+        Return: overwritten meshtags.
+        """
+        cdim = self._mesh.topology.dim
+        if overwriting_meshtags.dim == cdim:
+            new_tags = _overwrite_tags(
+                self._mesh, self._cells_meshtags, overwriting_meshtags
+            )
+            self._cells_meshtags = new_tags
+        elif overwriting_meshtags.dim == cdim - 1:
+            new_tags = _overwrite_tags(
+                self._mesh, self._facets_meshtags, overwriting_meshtags
+            )
+            self._facets_meshtags = new_tags
+        else:
+            raise ValueError(
+                "Cannot overwrite meshtags of dimension different from cells or facets dimensions."
+            )
+
+        return new_tags
+
+    @property
+    def submesh(self):
+        if self._cells_meshtags is None:
+            self.tag_cells()
+
+
+if __name__ == "__main__":
+    from basix.ufl import element
+    from mpi4py import MPI
+
+    mesh = dfx.mesh.create_unit_square(MPI.COMM_WORLD, 20, 20)
+
+    def exact_levelset(x):
+        return (x[0] - 0.5) ** 2 + (x[1] - 0.5) ** 2 - 0.25**2
+
+    p1_element = element("Lagrange", mesh.topology.cell_name(), 1)
+    p1_space = dfx.fem.functionspace(mesh, p1_element)
+    phifem = Phifem(mesh, exact_levelset)
+    phifem.detection_space = p1_space
+
+    _ = phifem.tag_cells()
+    _ = phifem.tag_facets()
+    print(phifem.cells_tag.inside)
+    print(phifem.cells_tag.outside)
+    print(phifem.facets_tag.inside)
