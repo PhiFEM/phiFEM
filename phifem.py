@@ -838,17 +838,17 @@ class Phifem:
     def detection_space(self) -> dfx.fem.FunctionSpace:
         return self._detection_space
 
-    @property
-    def cells_tags(self) -> dfx.mesh.MeshTags | None:
-        return self._cells_meshtags
-
-    @property
-    def facets_tags(self) -> dfx.mesh.MeshTags | None:
-        return self._facets_meshtags
-
     @detection_space.setter
     def detection_space(self, space: dfx.fem.FunctionSpace) -> None:
         self._detection_space = space
+
+    @property
+    def cells_meshtags(self) -> dfx.mesh.MeshTags | None:
+        return self._cells_meshtags
+
+    @property
+    def facets_meshtags(self) -> dfx.mesh.MeshTags | None:
+        return self._facets_meshtags
 
     def tag_cells(self) -> dfx.mesh.MeshTags:
         """Tag the mesh cells.
