@@ -738,7 +738,6 @@ class Phifem:
         mesh: dfx.mesh.Mesh,
         levelset: dfx.fem.Function | Callable,
         single_layer_cut: bool = True,
-        box_mode: bool = False,
     ) -> None:
         self._mesh = mesh
         fdim = mesh.topology.dim - 1
@@ -775,7 +774,8 @@ class Phifem:
         self._levelset_eval_cells: np.ndarray | None = None
         self._levelset_eval_facets: np.ndarray | None = None
         self._single_layer_cut: bool = single_layer_cut
-        self._box_mode: bool = box_mode
+        self._ds: ufl.Measure | None = None
+        self._submesh: bool = False
 
     def info(self) -> str:
         info_txt = "Cells tags:\n"
@@ -1073,9 +1073,67 @@ class Phifem:
         return new_tags
 
     @property
-    def submesh(self):
-        if self._cells_meshtags is None:
-            self.tag_cells()
+    def ds(self):
+        if self._ds is None:
+            if self._submesh is None:
+                integration_cells = np.union1d(
+                    self._cells_meshtags.find(2), self._cells_meshtags.find(1)
+                )
+                integration_entities_outside = _compute_integration_entities(
+                    mesh,
+                    integration_cells,
+                    self._facets_meshtags.find(4),
+                    self._facets_tags_nums.interior_boundary,
+                )
+                integration_cells = np.union1d(
+                    self._cells_meshtags.find(2), self._cells_meshtags.find(3)
+                )
+                integration_entities_inside = _compute_integration_entities(
+                    mesh,
+                    integration_cells,
+                    self._facets_meshtags.find(3),
+                    self._facets_tags_nums.exterior_boundary,
+                )
+                combined_integration_entities = (
+                    integration_entities_outside + integration_entities_inside
+                )
+
+                self._ds = ufl.Measure(
+                    "ds",
+                    domain=self._mesh,
+                    subdomain_data=combined_integration_entities,
+                )
+            else:
+                self._ds = ufl.Measure("ds", domain=self._submesh)
+
+        return self._ds
+
+    def create_submesh(self):
+        if not self._submesh:
+            if self._cells_meshtags is None:
+                cells_tags = self.tag_cells()
+            else:
+                cells_tags = self._cells_meshtags
+            omega_h_cells = np.unique(
+                np.hstack([cells_tags.find(1), cells_tags.find(2)])
+            )
+            self._mesh, self._c_map, self._v_map, self._n_map = dfx.mesh.create_submesh(
+                self._mesh, self._mesh.topology.dim, omega_h_cells
+            )  # type: ignore
+
+            self._cells_meshtags = dfx.mesh.transfer_meshtags_to_submesh(
+                cells_tags, self._mesh, self._v_map, self._c_map
+            )
+            if self._facets_meshtags is not None:
+                self._facets_meshtags = dfx.mesh.transfer_meshtags_to_submesh(
+                    facets_tags, self._mesh, self._v_map, self._c_map
+                )
+
+        return self._mesh, self._c_map, self._v_map, self._n_map
+
+    @property
+    def mesh(self):
+        return self._mesh
 
 
 if __name__ == "__main__":
