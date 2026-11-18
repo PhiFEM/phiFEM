@@ -400,9 +400,20 @@ def _tag_facets(
         boundary_cut_indices = []
     boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
     boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
+
+    is_cell_interior_one_cell_masked = (
+        np.where(
+            f2c_map[cut_indices] == -1,
+            False,
+            cells_tags.values[f2c_map[cut_indices]] == 1,
+        )
+    ).reshape(-1, 2)
     cut_indices_boundary = cut_indices[
         np.any(f2c_map[cut_indices] == -1, axis=1)
-        * np.any(cells_tags.values[f2c_map[cut_indices]] == 1, axis=1)
+        * np.any(
+            is_cell_interior_one_cell_masked,
+            axis=1,
+        )
     ]
     cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
     interior_indices = np.union1d(interior_indices, cut_indices_boundary)
@@ -411,19 +422,24 @@ def _tag_facets(
 
     boundary_interior_indices = np.intersect1d(boundary_cut_indices, exterior_indices)
     boundary_interior_indices = np.setdiff1d(boundary_interior_indices, direct_indices)
-    cut_indices_boundary = cut_indices[
-        np.any(f2c_map[cut_indices] == -1, axis=1)
-        * np.any(cells_tags.values[f2c_map[cut_indices]] == 2, axis=1)
-    ]
-    cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
-    boundary_interior_indices = np.union1d(
-        boundary_interior_indices, cut_indices_boundary
-    )
-    exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
 
+    exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
+    is_cell_cut_one_cell_masked = (
+        np.where(
+            f2c_map[cut_indices] == -1,
+            False,
+            cells_tags.values[f2c_map[cut_indices]] == 1,
+        )
+    ).reshape(-1, 2)
     cut_indices_boundary = cut_indices[
-        np.any(cells_tags.values[f2c_map[cut_indices]] == 1, axis=1)
-        * np.any(cells_tags.values[f2c_map[cut_indices]] == 2, axis=1)
+        np.any(
+            is_cell_interior_one_cell_masked,
+            axis=1,
+        )
+        * np.any(
+            is_cell_cut_one_cell_masked,
+            axis=1,
+        )
     ]
     cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
     boundary_exterior_indices = np.union1d(
@@ -648,32 +664,61 @@ def compute_tags_measures(
     )
 
     if overwrite_tags is not None:
-        if "cells" in overwrite_tags:
-            ow_cells_tags = overwrite_tags["cells"]
-            if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
-                raise ValueError("Cannot overwrite cells tags with values 1, 2 or 3.")
-            cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
-        if "facets" in overwrite_tags:
-            ow_facets_tags = overwrite_tags["facets"]
-            if np.any(np.isin([1, 2, 3, 4, 5, 6, 100, 101], ow_facets_tags.values)):
-                raise ValueError(
-                    "Cannot overwrite facets tags with values 1, 2, 3, 4, 5, 6, 100 or 101."
+        if (
+            "dS" in overwrite_tags
+            and "ds" in overwrite_tags
+            and len(
+                np.intersect1d(
+                    overwrite_tags["ds"].indices, overwrite_tags["dS"].indices
                 )
-            facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
+            )
+            > 0
+        ):
+            raise ValueError(
+                "'ds' and 'dS' indices in overwrite_tags must have an empty intersection."
+            )
+        for measure in overwrite_tags:
+            if measure == "dx":
+                ow_cells_tags = overwrite_tags["dx"]
+                if np.any(np.isin([1, 2, 3], ow_cells_tags.values)):
+                    raise ValueError(
+                        "Cannot overwrite cells tags with values 1, 2 or 3."
+                    )
+                cells_tags = _overwrite_tags(mesh, cells_tags, ow_cells_tags)
+            elif measure == "dS" or measure == "ds":
+                ow_facets_tags = overwrite_tags[measure]
+                if np.any(np.isin([1, 2, 3, 4, 5, 6], ow_facets_tags.values)):
+                    raise ValueError(
+                        "Cannot overwrite facets tags with values 1, 2, 3, 4, 5 and 6."
+                    )
+                facets_tags = _overwrite_tags(mesh, facets_tags, ow_facets_tags)
+            else:
+                raise ValueError("overwrite_tags keys must be 'dx', 'ds' or 'dS'.")
 
     if box_mode:
         submesh = None
+        combined_integration_entities = []
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(1))
         integration_entities_outside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(4), 100
+            mesh, integration_cells, facets_tags.find(4), 4
         )
+        combined_integration_entities += integration_entities_outside
         integration_cells = np.union1d(cells_tags.find(2), cells_tags.find(3))
         integration_entities_inside = _compute_integration_entities(
-            mesh, integration_cells, facets_tags.find(3), 101
+            mesh, integration_cells, facets_tags.find(3), 3
         )
-        combined_integration_entities = (
-            integration_entities_outside + integration_entities_inside
-        )
+        combined_integration_entities += integration_entities_inside
+        mesh.topology.create_connectivity(fdim, cdim)
+        f2c_connect = mesh.topology.connectivity(fdim, cdim)
+        f2c_map = _reshape_map(f2c_connect)[0]
+        if overwrite_tags is not None and "ds" in overwrite_tags:
+            for idx in np.unique(overwrite_tags["ds"].values):
+                integration_facets = overwrite_tags["ds"].find(idx)
+                integration_cells = f2c_map[integration_facets]
+                integration_entities_boundary = _compute_integration_entities(
+                    mesh, integration_cells, integration_facets, idx
+                )
+                combined_integration_entities += integration_entities_boundary
 
         boundaries_measure = ufl.Measure(
             "ds", domain=mesh, subdomain_data=combined_integration_entities
