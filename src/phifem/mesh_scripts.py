@@ -400,9 +400,20 @@ def _tag_facets(
         boundary_cut_indices = []
     boundary_exterior_indices = np.intersect1d(boundary_cut_indices, interior_indices)
     boundary_exterior_indices = np.setdiff1d(boundary_exterior_indices, direct_indices)
+
+    is_cell_interior_one_cell_masked = (
+        np.where(
+            f2c_map[cut_indices] == -1,
+            False,
+            cells_tags.values[f2c_map[cut_indices]] == 1,
+        )
+    ).reshape(-1, 2)
     cut_indices_boundary = cut_indices[
         np.any(f2c_map[cut_indices] == -1, axis=1)
-        * np.any(cells_tags.values[f2c_map[cut_indices]] == 1, axis=1)
+        * np.any(
+            is_cell_interior_one_cell_masked,
+            axis=1,
+        )
     ]
     cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
     interior_indices = np.union1d(interior_indices, cut_indices_boundary)
@@ -411,19 +422,24 @@ def _tag_facets(
 
     boundary_interior_indices = np.intersect1d(boundary_cut_indices, exterior_indices)
     boundary_interior_indices = np.setdiff1d(boundary_interior_indices, direct_indices)
-    cut_indices_boundary = cut_indices[
-        np.any(f2c_map[cut_indices] == -1, axis=1)
-        * np.any(cells_tags.values[f2c_map[cut_indices]] == 2, axis=1)
-    ]
-    cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
-    boundary_interior_indices = np.union1d(
-        boundary_interior_indices, cut_indices_boundary
-    )
-    exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
 
+    exterior_indices = np.setdiff1d(exterior_indices, boundary_interior_indices)
+    is_cell_cut_one_cell_masked = (
+        np.where(
+            f2c_map[cut_indices] == -1,
+            False,
+            cells_tags.values[f2c_map[cut_indices]] == 1,
+        )
+    ).reshape(-1, 2)
     cut_indices_boundary = cut_indices[
-        np.any(cells_tags.values[f2c_map[cut_indices]] == 1, axis=1)
-        * np.any(cells_tags.values[f2c_map[cut_indices]] == 2, axis=1)
+        np.any(
+            is_cell_interior_one_cell_masked,
+            axis=1,
+        )
+        * np.any(
+            is_cell_cut_one_cell_masked,
+            axis=1,
+        )
     ]
     cut_indices = np.setdiff1d(cut_indices, cut_indices_boundary)
     boundary_exterior_indices = np.union1d(
