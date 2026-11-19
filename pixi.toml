@@ -14,7 +14,6 @@ pyaml = ">=26.7.0,<27"
 fenics-dolfinx = ">=0.11.0,<0.12"
 
 [feature.dev.pypi-dependencies]
-pydouillaj = { git = "https://codeberg.org/rbulle/pydouillaj.git" }
 matplotlib = "*"
 ngsolve = ">=6.2.2608, <7"
 ngspetsc = ">=0.3.0, <0.4"
