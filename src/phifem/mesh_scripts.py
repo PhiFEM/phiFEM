@@ -716,7 +716,7 @@ def compute_tags_measures(
                 integration_facets = overwrite_tags["ds"].find(idx)
                 integration_cells = f2c_map[integration_facets]
                 integration_entities_boundary = _compute_integration_entities(
-                    mesh, integration_cells, integration_facets, idx
+                    mesh, integration_cells, integration_facets, int(idx)
                 )
                 combined_integration_entities += integration_entities_boundary
 
